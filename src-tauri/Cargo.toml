@@ -1,6 +1,6 @@
 [package]
 name = "sovereign-pdf"
-version = "0.1.0"
+version = "0.1.1"
 description = "A private, local-first PDF editor"
 authors = ["SovereignPDF contributors"]
 edition = "2021"
