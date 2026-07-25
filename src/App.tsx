@@ -560,8 +560,8 @@ export default function App() {
         </div>
       </header>
 
-      <div className="flex h-16 shrink-0 items-stretch overflow-x-auto border-b border-white/10 bg-[#1b1e23] px-2">
-        <div className="flex shrink-0 flex-col justify-center gap-1.5 border-r border-white/10 px-2">
+      <div className="flex h-[72px] shrink-0 items-stretch overflow-x-auto border-b border-white/10 bg-[#1b1e23] px-2">
+        <div className="flex shrink-0 flex-col justify-start gap-2 border-r border-white/10 px-2 pb-1 pt-2">
           <span className="px-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Edit</span>
           <div className="flex items-center">
             <button className={iconButton} disabled={!pdfDocument} onClick={() => void mergePdf()}><FilePlus2 size={16} /> Merge</button>
@@ -581,7 +581,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col justify-center gap-1.5 border-r border-white/10 px-2">
+        <div className="flex shrink-0 flex-col justify-start gap-2 border-r border-white/10 px-2 pb-1 pt-2">
           <span className="px-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-sky-400/80">History</span>
           <div className="flex items-center">
             <button className={iconButton + " text-sky-300 hover:bg-sky-400/10 hover:text-sky-200"} title="Undo last edit" disabled={!editor.canUndo} onClick={editor.undo}><Undo2 size={16} /> Undo</button>
@@ -589,7 +589,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col justify-center gap-1.5 border-r border-white/10 px-2">
+        <div className="flex shrink-0 flex-col justify-start gap-2 border-r border-white/10 px-2 pb-1 pt-2">
           <span className="px-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-amber-400/80">Rotate · Page {selectedPage}</span>
           <div className="flex items-center">
             <button className={iconButton + " text-amber-300 hover:bg-amber-400/10 hover:text-amber-200"} title={`Rotate selected page ${selectedPage} left`} disabled={!pdfDocument} onClick={() => void editor.rotate(selectedPage, -90)}><RotateCcw size={16} /> Left</button>
@@ -597,7 +597,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col justify-center gap-1.5 border-r border-white/10 px-2">
+        <div className="flex shrink-0 flex-col justify-start gap-2 border-r border-white/10 px-2 pb-1 pt-2">
           <span className="px-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-orange-400/80">Markup</span>
           <div className="flex items-center">
             <button className={iconButton + selectedToolClass("select")} onClick={() => setActiveTool("select")}><MousePointer2 size={16} /> Select</button>
@@ -609,7 +609,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col justify-center gap-1.5 border-r border-white/10 px-2">
+        <div className="flex shrink-0 flex-col justify-start gap-2 border-r border-white/10 px-2 pb-1 pt-2">
           <span className="px-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
           <div className="flex items-center">
             <button className={iconButton} disabled={!pdfDocument} onClick={() => void editor.flattenForms()} title="Flatten interactive form fields"><FileCheck2 size={16} /> Forms</button>
@@ -618,7 +618,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="ml-auto flex shrink-0 flex-col justify-center gap-1.5 px-2">
+        <div className="ml-auto flex shrink-0 flex-col justify-start gap-2 px-2 pb-1 pt-2">
           <span className="px-2 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">View</span>
           <div className="flex items-center gap-1">
             <button className={iconButton} disabled={!pdfDocument} onClick={() => { setZoom((value) => Math.max(0.25, value - 0.1)); setViewMode("custom"); }}><ZoomOut size={16} /></button>
