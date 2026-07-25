@@ -1,0 +1,28 @@
+[package]
+name = "sovereign-pdf"
+version = "0.1.0"
+description = "A private, local-first PDF editor"
+authors = ["SovereignPDF contributors"]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "sovereign_pdf_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
