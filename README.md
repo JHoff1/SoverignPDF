@@ -1,0 +1,2 @@
+# SoverignPDF
+A lightweight, free and open-source desktop PDF editor for Windows, macOS, and Linux. Edit, organize, annotate, merge, split, redact, and optimize PDFs entirely on your device—with no cloud uploads, telemetry, subscriptions, or paywalls.
