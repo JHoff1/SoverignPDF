@@ -26,17 +26,17 @@ jobs:
             const repo = context.repo.repo;
             const tag = context.ref.replace("refs/tags/", "");
 
-            try {
-              const existing = await github.rest.repos.getReleaseByTag({
-                owner,
-                repo,
-                tag,
-              });
-              core.info(`Using existing release ${existing.data.id} for ${tag}.`);
-            } catch (error) {
-              if (error.status !== 404) {
-                throw error;
-              }
+            const releases = await github.paginate(
+              github.rest.repos.listReleases,
+              { owner, repo, per_page: 100 },
+            );
+            const existing = releases.find(
+              (release) => release.tag_name === tag,
+            );
+
+            if (existing) {
+              core.info(`Using existing release ${existing.id} for ${tag}.`);
+            } else {
               const created = await github.rest.repos.createRelease({
                 owner,
                 repo,
@@ -135,12 +135,18 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const tag = context.ref.replace("refs/tags/", "");
-            const response = await github.rest.repos.getReleaseByTag({
-              owner,
-              repo,
-              tag,
-            });
-            const release = response.data;
+            const releases = await github.paginate(
+              github.rest.repos.listReleases,
+              { owner, repo, per_page: 100 },
+            );
+            const release = releases.find(
+              (candidate) => candidate.tag_name === tag,
+            );
+
+            if (!release) {
+              core.setFailed(`No GitHub release exists for ${tag}.`);
+              return;
+            }
 
             if (release.assets.length < 5) {
               core.setFailed(
