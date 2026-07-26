@@ -88,6 +88,7 @@ fn create_pdf_window(app: &tauri::AppHandle, path: String) -> tauri::Result<()> 
         .title(title)
         .inner_size(1280.0, 820.0)
         .min_inner_size(900.0, 600.0)
+        .maximized(true)
         .build();
 
     if result.is_err() {
