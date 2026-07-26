@@ -6,8 +6,17 @@ import {
   rgb,
   type PDFPage
 } from "pdf-lib";
+import { clonePlain, createLocalId } from "../localUtils";
 
 export type Point = { x: number; y: number };
+export type TextFont = "helvetica" | "times" | "courier";
+export type TextStyle = {
+  size: number;
+  color: string;
+  fontFamily: TextFont;
+  bold: boolean;
+  italic: boolean;
+};
 
 export type Annotation =
   | {
@@ -19,6 +28,9 @@ export type Annotation =
       text: string;
       size: number;
       color: string;
+      fontFamily: TextFont;
+      bold: boolean;
+      italic: boolean;
     }
   | {
       id: string;
@@ -85,12 +97,31 @@ function pointOnPage(page: PDFPage, point: Point) {
   return { x: point.x * width, y: height - point.y * height };
 }
 
+function standardFontFor(style: TextStyle) {
+  if (style.fontFamily === "times") {
+    if (style.bold && style.italic) return StandardFonts.TimesRomanBoldItalic;
+    if (style.bold) return StandardFonts.TimesRomanBold;
+    if (style.italic) return StandardFonts.TimesRomanItalic;
+    return StandardFonts.TimesRoman;
+  }
+  if (style.fontFamily === "courier") {
+    if (style.bold && style.italic) return StandardFonts.CourierBoldOblique;
+    if (style.bold) return StandardFonts.CourierBold;
+    if (style.italic) return StandardFonts.CourierOblique;
+    return StandardFonts.Courier;
+  }
+  if (style.bold && style.italic) return StandardFonts.HelveticaBoldOblique;
+  if (style.bold) return StandardFonts.HelveticaBold;
+  if (style.italic) return StandardFonts.HelveticaOblique;
+  return StandardFonts.Helvetica;
+}
+
 export async function flattenPdf(
   source: Uint8Array,
   annotations: Annotation[]
 ) {
   const pdf = await PDFDocument.load(source);
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const fonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>>>();
 
   for (const annotation of annotations) {
     const page = pdf.getPage(annotation.page - 1);
@@ -98,6 +129,12 @@ export async function flattenPdf(
     const { width, height } = page.getSize();
 
     if (annotation.kind === "text") {
+      const fontName = standardFontFor(annotation);
+      let font = fonts.get(fontName);
+      if (!font) {
+        font = await pdf.embedFont(fontName);
+        fonts.set(fontName, font);
+      }
       page.drawText(annotation.text, {
         x: annotation.x * width,
         y: height - annotation.y * height - annotation.size,
@@ -158,8 +195,10 @@ export function useDocumentEditor() {
       const next = previous.slice(0, historyIndex + 1);
       next.push({
         ...snapshot,
-        bytes: cloneBytes(snapshot.bytes),
-        annotations: structuredClone(snapshot.annotations)
+        // PDF bytes are treated as immutable. Keeping the same reference for
+        // annotation-only commits prevents PDF.js from rebuilding every page.
+        bytes: snapshot.bytes,
+        annotations: clonePlain(snapshot.annotations)
       });
       return next.slice(-40);
     });
@@ -207,7 +246,7 @@ export function useDocumentEditor() {
       );
       const copies = items
         .filter((item) => item.page === pageNumber)
-        .map((item) => ({ ...structuredClone(item), id: crypto.randomUUID(), page: pageNumber + 1 }));
+        .map((item) => ({ ...clonePlain(item), id: createLocalId(), page: pageNumber + 1 }));
       return [...shifted, ...copies];
     }), [transformPdf]);
 
@@ -285,6 +324,21 @@ export function useDocumentEditor() {
     });
   }, [commit, current]);
 
+  const updateAnnotation = useCallback((
+    id: string,
+    updates: Partial<Annotation>,
+    label = "Update annotation"
+  ) => {
+    if (!current) return;
+    commit({
+      bytes: current.bytes,
+      annotations: current.annotations.map((item) =>
+        item.id === id ? { ...item, ...updates } as Annotation : item
+      ),
+      label
+    });
+  }, [commit, current]);
+
   return useMemo(() => ({
     bytes: current?.bytes ?? null,
     annotations: current?.annotations ?? [],
@@ -301,6 +355,7 @@ export function useDocumentEditor() {
     merge,
     extract,
     addAnnotation,
+    updateAnnotation,
     removeAnnotation,
     flattenForms,
     sanitize,
@@ -309,6 +364,6 @@ export function useDocumentEditor() {
   }), [
     addAnnotation, current, duplicate, extract, history, historyIndex, load,
     flattenForms, merge, optimize, remove, removeAnnotation, reorder, rotate,
-    sanitize
+    sanitize, updateAnnotation
   ]);
 }

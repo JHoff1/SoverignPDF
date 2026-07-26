@@ -24,7 +24,7 @@ jobs:
             args: --bundles nsis,msi
           - name: macOS
             platform: macos-latest
-            args: --bundles dmg
+            args: --bundles dmg --target universal-apple-darwin
           - name: Linux
             platform: ubuntu-22.04
             args: --bundles deb,appimage
@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -47,13 +47,17 @@ jobs:
             libfuse2
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install universal macOS Rust targets
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
