@@ -1,0 +1,113 @@
+name: Finalize v0.1.2 release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/finalize-v0.1.2.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  finalize:
+    name: Publish v0.1.2 and remove superseded releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Wait for installers, publish release, and remove old releases
+        uses: actions/github-script@v9
+        with:
+          retries: 3
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const releaseRunId = 30205834700;
+            const currentTag = "v0.1.2";
+            const supersededTags = new Set(["v0.1.0", "v0.1.1"]);
+
+            let releaseRun;
+            for (let attempt = 1; attempt <= 100; attempt += 1) {
+              const response = await github.rest.actions.getWorkflowRun({
+                owner,
+                repo,
+                run_id: releaseRunId,
+              });
+              releaseRun = response.data;
+
+              if (releaseRun.status === "completed") {
+                break;
+              }
+
+              core.info(
+                `Installer run is ${releaseRun.status}; waiting 15 seconds ` +
+                  `(check ${attempt}/100).`,
+              );
+              await new Promise((resolve) => setTimeout(resolve, 15_000));
+            }
+
+            if (releaseRun?.status !== "completed") {
+              core.setFailed("Timed out while waiting for the installer workflow.");
+              return;
+            }
+
+            if (releaseRun.conclusion !== "success") {
+              core.setFailed(
+                `Installer workflow concluded with ${releaseRun.conclusion}.`,
+              );
+              return;
+            }
+
+            const releases = await github.paginate(
+              github.rest.repos.listReleases,
+              { owner, repo, per_page: 100 },
+            );
+            const currentRelease = releases.find(
+              (release) => release.tag_name === currentTag,
+            );
+
+            if (!currentRelease) {
+              core.setFailed(`No GitHub release exists for ${currentTag}.`);
+              return;
+            }
+
+            if (currentRelease.assets.length < 5) {
+              core.setFailed(
+                `Expected at least 5 installer assets for ${currentTag}, ` +
+                  `but found ${currentRelease.assets.length}.`,
+              );
+              return;
+            }
+
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: currentRelease.id,
+              name: `SovereignPDF ${currentTag}`,
+              body:
+                "Download the installer for your operating system from the " +
+                "assets below.\n\nSovereignPDF processes documents entirely " +
+                "on your device.",
+              draft: false,
+              prerelease: false,
+              make_latest: "true",
+            });
+            core.info(`Published ${currentTag} with ${currentRelease.assets.length} assets.`);
+
+            for (const release of releases) {
+              if (!supersededTags.has(release.tag_name)) {
+                continue;
+              }
+
+              await github.rest.repos.deleteRelease({
+                owner,
+                repo,
+                release_id: release.id,
+              });
+              core.info(
+                `Deleted the ${release.tag_name} release record; its Git tag remains.`,
+              );
+            }

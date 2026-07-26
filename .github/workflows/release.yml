@@ -78,6 +78,6 @@ jobs:
             Download the installer for your operating system from the assets below.
 
             SovereignPDF processes documents entirely on your device.
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
