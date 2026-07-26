@@ -182,12 +182,30 @@ export async function flattenPdf(
 export function useDocumentEditor() {
   const [history, setHistory] = useState<Snapshot[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [savedHistoryIndex, setSavedHistoryIndex] = useState(-1);
 
   const current = history[historyIndex] ?? null;
 
   const load = useCallback((bytes: Uint8Array) => {
     setHistory([{ bytes: cloneBytes(bytes), annotations: [], label: "Open document" }]);
     setHistoryIndex(0);
+    setSavedHistoryIndex(0);
+  }, []);
+
+  const restore = useCallback((bytes: Uint8Array, annotations: Annotation[]) => {
+    setHistory([{
+      bytes: cloneBytes(bytes),
+      annotations: clonePlain(annotations),
+      label: "Recover unsaved work"
+    }]);
+    setHistoryIndex(0);
+    setSavedHistoryIndex(-1);
+  }, []);
+
+  const clear = useCallback(() => {
+    setHistory([]);
+    setHistoryIndex(-1);
+    setSavedHistoryIndex(-1);
   }, []);
 
   const commit = useCallback((snapshot: Snapshot) => {
@@ -342,10 +360,14 @@ export function useDocumentEditor() {
   return useMemo(() => ({
     bytes: current?.bytes ?? null,
     annotations: current?.annotations ?? [],
+    isDirty: Boolean(current) && historyIndex !== savedHistoryIndex,
     canUndo: historyIndex > 0,
     canRedo: historyIndex >= 0 && historyIndex < history.length - 1,
     undoLabel: history[historyIndex]?.label,
     load,
+    clear,
+    restore,
+    markSaved: () => setSavedHistoryIndex(historyIndex),
     undo: () => setHistoryIndex((value) => Math.max(0, value - 1)),
     redo: () => setHistoryIndex((value) => Math.min(history.length - 1, value + 1)),
     rotate,
@@ -362,8 +384,8 @@ export function useDocumentEditor() {
     optimize,
     flattened: () => current ? flattenPdf(current.bytes, current.annotations) : null
   }), [
-    addAnnotation, current, duplicate, extract, history, historyIndex, load,
+    addAnnotation, clear, current, duplicate, extract, history, historyIndex, load, restore,
     flattenForms, merge, optimize, remove, removeAnnotation, reorder, rotate,
-    sanitize, updateAnnotation
+    sanitize, savedHistoryIndex, updateAnnotation
   ]);
 }

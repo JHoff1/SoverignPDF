@@ -31,6 +31,9 @@ advertising, cloud processing, account system, or paid features.
 - Fit-to-width and fit-to-page modes
 - Native and browser-preview file pickers
 - Drag-and-drop document opening
+- Password prompts with local retry support for encrypted PDFs; passwords stay
+  in memory and encrypted files open in protected viewing mode
+- Virtualized page mounting for large documents
 
 ### Page editing
 
@@ -43,17 +46,18 @@ advertising, cloud processing, account system, or paid features.
 
 ### Markup and privacy tools
 
-- Text annotations
-- Freehand pen
-- Highlighter
+- Selectable, movable, resizable, and editable text annotations
+- Selectable freehand pen and highlighter strokes
 - Image and signature overlays
-- Redaction regions
+- Selectable and resizable redaction regions
 - Flattened annotations during export
 - Secure redaction export through local page rasterization
 
 ### Document tools
 
 - Save and Save As
+- Save / Discard / Cancel protection when closing with unsaved changes
+- Local crash-recovery snapshots that are removed after saving or discarding
 - Interactive form-field flattening
 - Metadata sanitization
 - PDF structure optimization

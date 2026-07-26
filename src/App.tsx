@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type PointerEvent as ReactPointerEvent,
   type ReactNode
 } from "react";
@@ -53,6 +54,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   GlobalWorkerOptions,
+  PasswordResponses,
   Util,
   getDocument,
   type PDFDocumentProxy,
@@ -76,6 +78,12 @@ import {
   joinLocalPath,
   parsePageRanges
 } from "./localUtils";
+import {
+  clearRecovery,
+  readRecovery,
+  saveRecovery,
+  type RecoverySnapshot
+} from "./recoveryStore";
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -94,6 +102,7 @@ type SearchMatch = SearchSpan & {
 };
 type ImageAnnotation = Extract<Annotation, { kind: "image" }>;
 type ImageBox = Pick<ImageAnnotation, "id" | "x" | "y" | "width" | "height">;
+type AnnotationBox = ImageBox;
 type StrokeStyle = {
   color: string;
   width: number;
@@ -273,6 +282,8 @@ function AppDialog({
   confirmDisabled = false,
   busy = false,
   showCancel = true,
+  secondaryLabel,
+  onSecondary,
   wide = false,
   onCancel,
   onConfirm,
@@ -284,6 +295,8 @@ function AppDialog({
   confirmDisabled?: boolean;
   busy?: boolean;
   showCancel?: boolean;
+  secondaryLabel?: string;
+  onSecondary?: () => void | Promise<void>;
   wide?: boolean;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
@@ -331,6 +344,16 @@ function AppDialog({
         </div>
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
         <div className="flex justify-end gap-2 border-t border-white/10 px-5 py-3">
+          {secondaryLabel && onSecondary && (
+            <button
+              type="button"
+              className="h-9 rounded-md bg-red-500/15 px-4 text-xs font-medium text-red-200 hover:bg-red-500/25 disabled:opacity-40"
+              disabled={busy}
+              onClick={() => void onSecondary()}
+            >
+              {secondaryLabel}
+            </button>
+          )}
           {showCancel && (
             <button
               type="button"
@@ -367,10 +390,19 @@ async function readLocalPdf(path: string) {
   return bytes.slice().buffer;
 }
 
-async function rasterizeForSecureRedaction(bytes: Uint8Array) {
+async function rasterizeForSecureRedaction(
+  bytes: Uint8Array,
+  redactedPages: Set<number>
+) {
   const source = await getDocument({ data: cloneForPdfJs(bytes) }).promise;
+  const editableSource = await PDFDocument.load(bytes);
   const output = await PDFDocument.create();
   for (let pageNumber = 1; pageNumber <= source.numPages; pageNumber += 1) {
+    if (!redactedPages.has(pageNumber)) {
+      const [copiedPage] = await output.copyPages(editableSource, [pageNumber - 1]);
+      output.addPage(copiedPage);
+      continue;
+    }
     const sourcePage = await source.getPage(pageNumber);
     const pdfSize = sourcePage.getViewport({ scale: 1 });
     const renderSize = sourcePage.getViewport({ scale: 2 });
@@ -410,7 +442,8 @@ function PageCanvas({
   selectedAnnotationId,
   onSelectAnnotation,
   onUpdateAnnotation,
-  onRemoveAnnotation
+  onRemoveAnnotation,
+  pageId
 }: {
   page: PDFPageProxy;
   scale: number;
@@ -427,6 +460,7 @@ function PageCanvas({
   onSelectAnnotation: (id: string | null) => void;
   onUpdateAnnotation: (id: string, updates: Partial<Annotation>, label?: string) => void;
   onRemoveAnnotation: (id: string) => void;
+  pageId?: string | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -444,6 +478,139 @@ function PageCanvas({
     startClientY: number;
     start: ImageBox;
   } | null>(null);
+  const [annotationDraft, setAnnotationDraft] = useState<Annotation | null>(null);
+  const annotationDraftRef = useRef<Annotation | null>(null);
+  const annotationGesture = useRef<{
+    mode: "move" | "resize";
+    startClientX: number;
+    startClientY: number;
+    start: Annotation;
+    bounds: AnnotationBox;
+  } | null>(null);
+
+  const boundsForAnnotation = useCallback((annotation: Annotation): AnnotationBox => {
+    if (annotation.kind === "image" || annotation.kind === "redaction") {
+      return {
+        id: annotation.id,
+        x: annotation.x,
+        y: annotation.y,
+        width: annotation.width,
+        height: annotation.height
+      };
+    }
+    if (annotation.kind === "text") {
+      return {
+        id: annotation.id,
+        x: annotation.x,
+        y: annotation.y,
+        width: Math.min(
+          1 - annotation.x,
+          Math.max(0.035, annotation.text.length * annotation.size * 0.56 / Math.max(viewport.width / scale, 1))
+        ),
+        height: Math.max(0.018, annotation.size * 1.3 / Math.max(viewport.height / scale, 1))
+      };
+    }
+    const xs = annotation.points.map((point) => point.x);
+    const ys = annotation.points.map((point) => point.y);
+    const padding = Math.max(0.006, annotation.width / 1200);
+    const x = Math.max(0, Math.min(...xs) - padding);
+    const y = Math.max(0, Math.min(...ys) - padding);
+    return {
+      id: annotation.id,
+      x,
+      y,
+      width: Math.min(1 - x, Math.max(0.025, Math.max(...xs) - Math.min(...xs) + padding * 2)),
+      height: Math.min(1 - y, Math.max(0.025, Math.max(...ys) - Math.min(...ys) + padding * 2))
+    };
+  }, [scale, viewport.height, viewport.width]);
+
+  const beginAnnotationGesture = useCallback((
+    event: ReactPointerEvent<HTMLElement>,
+    annotation: Annotation,
+    mode: "move" | "resize"
+  ) => {
+    if (annotation.kind === "image") return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    annotationGesture.current = {
+      mode,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      start: clonePlain(annotation),
+      bounds: boundsForAnnotation(annotation)
+    };
+    annotationDraftRef.current = clonePlain(annotation);
+    setAnnotationDraft(clonePlain(annotation));
+    onSelectAnnotation(annotation.id);
+  }, [boundsForAnnotation, onSelectAnnotation]);
+
+  const moveAnnotationGesture = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    const gesture = annotationGesture.current;
+    const host = hostRef.current;
+    if (!gesture || !host) return;
+    const hostBounds = host.getBoundingClientRect();
+    const dx = (event.clientX - gesture.startClientX) / hostBounds.width;
+    const dy = (event.clientY - gesture.startClientY) / hostBounds.height;
+    const start = gesture.start;
+    let next: Annotation = start;
+    if (gesture.mode === "move") {
+      const constrainedX = Math.min(1 - gesture.bounds.width, Math.max(0, gesture.bounds.x + dx));
+      const constrainedY = Math.min(1 - gesture.bounds.height, Math.max(0, gesture.bounds.y + dy));
+      const offsetX = constrainedX - gesture.bounds.x;
+      const offsetY = constrainedY - gesture.bounds.y;
+      if (start.kind === "text" || start.kind === "redaction") {
+        next = { ...start, x: start.x + offsetX, y: start.y + offsetY };
+      } else if (start.kind === "pen" || start.kind === "highlight") {
+        next = {
+          ...start,
+          points: start.points.map((point) => ({
+            x: point.x + offsetX,
+            y: point.y + offsetY
+          }))
+        };
+      }
+    } else {
+      const width = Math.min(1 - gesture.bounds.x, Math.max(0.025, gesture.bounds.width + dx));
+      const height = Math.min(1 - gesture.bounds.y, Math.max(0.025, gesture.bounds.height + dy));
+      if (start.kind === "redaction") {
+        next = { ...start, width, height };
+      } else if (start.kind === "text") {
+        next = {
+          ...start,
+          size: Math.min(96, Math.max(6, Math.round(start.size * width / gesture.bounds.width)))
+        };
+      } else if (start.kind === "pen" || start.kind === "highlight") {
+        next = {
+          ...start,
+          points: start.points.map((point) => ({
+            x: gesture.bounds.x + (point.x - gesture.bounds.x) * width / gesture.bounds.width,
+            y: gesture.bounds.y + (point.y - gesture.bounds.y) * height / gesture.bounds.height
+          }))
+        };
+      }
+    }
+    annotationDraftRef.current = next;
+    setAnnotationDraft(next);
+  }, []);
+
+  const finishAnnotationGesture = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    const gesture = annotationGesture.current;
+    if (!gesture) return;
+    event.stopPropagation();
+    const next = annotationDraftRef.current;
+    annotationGesture.current = null;
+    annotationDraftRef.current = null;
+    setAnnotationDraft(null);
+    if (next) {
+      const { id: _id, kind: _kind, page: _page, ...updates } = next;
+      onUpdateAnnotation(
+        next.id,
+        updates as Partial<Annotation>,
+        gesture.mode === "move" ? `Move ${next.kind}` : `Resize ${next.kind}`
+      );
+    }
+  }, [onUpdateAnnotation]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -611,9 +778,10 @@ function PageCanvas({
   return (
     <div
       ref={hostRef}
-      id={`page-${page.pageNumber}`}
+      id={pageId === null ? undefined : pageId ?? `page-${page.pageNumber}`}
+      data-page-mounted={page.pageNumber}
       className="relative shrink-0 bg-white shadow-2xl"
-      aria-label={`Page ${page.pageNumber}`}
+      aria-label={pageId === null ? undefined : `Page ${page.pageNumber}`}
       style={{
         width: `${Math.ceil(viewport.width)}px`,
         height: `${Math.ceil(viewport.height)}px`
@@ -734,6 +902,66 @@ function PageCanvas({
           );
         })}
         {annotations.map((annotation) => {
+          if (annotation.kind === "image") return null;
+          const displayed = annotationDraft?.id === annotation.id ? annotationDraft : annotation;
+          const box = boundsForAnnotation(displayed);
+          const selected = selectedAnnotationId === annotation.id;
+          return (
+            <div
+              key={`annotation-controls-${annotation.id}`}
+              data-annotation-kind={annotation.kind}
+              className={`absolute ${
+                activeTool === "select" ? "pointer-events-auto cursor-move" : "pointer-events-none"
+              } ${
+                selected
+                  ? "border-2 border-orange-500 bg-orange-400/5 shadow-[0_0_0_1px_rgba(255,255,255,0.85)]"
+                  : "hover:border hover:border-orange-400/70"
+              }`}
+              style={{
+                left: `${box.x * 100}%`,
+                top: `${box.y * 100}%`,
+                width: `${box.width * 100}%`,
+                height: `${box.height * 100}%`
+              }}
+              onPointerDown={(event) => beginAnnotationGesture(event, annotation, "move")}
+              onPointerMove={moveAnnotationGesture}
+              onPointerUp={finishAnnotationGesture}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelectAnnotation(annotation.id);
+              }}
+            >
+              {selected && activeTool === "select" && (
+                <>
+                  <button
+                    type="button"
+                    aria-label={`Delete selected ${annotation.kind}`}
+                    data-tooltip={`Delete ${annotation.kind}`}
+                    className="pointer-events-auto absolute -right-3 -top-3 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-white bg-red-600 text-white shadow-lg hover:bg-red-500"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRemoveAnnotation(annotation.id);
+                      onSelectAnnotation(null);
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                  <span
+                    role="button"
+                    aria-label={`Resize selected ${annotation.kind}`}
+                    data-tooltip={`Drag to resize ${annotation.kind}`}
+                    className="pointer-events-auto absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-orange-500 shadow"
+                    onPointerDown={(event) => beginAnnotationGesture(event, annotation, "resize")}
+                    onPointerMove={moveAnnotationGesture}
+                    onPointerUp={finishAnnotationGesture}
+                  />
+                </>
+              )}
+            </div>
+          );
+        })}
+        {annotations.map((annotation) => {
           if (annotation.kind !== "image") return null;
           const box = imageDraft?.id === annotation.id ? imageDraft : annotation;
           const selected = selectedAnnotationId === annotation.id;
@@ -840,6 +1068,51 @@ function PageCanvas({
           />
         )}
       </div>
+    </div>
+  );
+}
+
+function VirtualizedPage(props: ComponentProps<typeof PageCanvas>) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [nearViewport, setNearViewport] = useState(false);
+  const viewport = useMemo(
+    () => props.page.getViewport({ scale: props.scale }),
+    [props.page, props.scale]
+  );
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setNearViewport(entry.isIntersecting),
+      { rootMargin: "1800px 0px" }
+    );
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={hostRef}
+      id={`page-${props.page.pageNumber}`}
+      aria-label={`Page ${props.page.pageNumber}`}
+      data-virtual-page={props.page.pageNumber}
+      className="relative shrink-0 bg-zinc-100 shadow-2xl"
+      style={{
+        width: `${Math.ceil(viewport.width)}px`,
+        height: `${Math.ceil(viewport.height)}px`
+      }}
+    >
+      {nearViewport ? (
+        <PageCanvas {...props} pageId={null} />
+      ) : (
+        <div
+          className="absolute inset-0 flex items-center justify-center text-xs text-zinc-400"
+          aria-label={`Page ${props.page.pageNumber} placeholder`}
+        >
+          Page {props.page.pageNumber}
+        </div>
+      )}
     </div>
   );
 }
@@ -963,7 +1236,7 @@ export default function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [preparedPageCount, setPreparedPageCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [activeDialog, setActiveDialog] = useState<"preferences" | "save" | "overwrite" | "split" | "split-save" | null>(null);
+  const [activeDialog, setActiveDialog] = useState<"preferences" | "save" | "overwrite" | "split" | "split-save" | "password" | "unsaved-close" | "recovery" | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveForceAs, setSaveForceAs] = useState(false);
@@ -972,6 +1245,10 @@ export default function App() {
   const [pendingSplitBytes, setPendingSplitBytes] = useState<Uint8Array | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [preferenceStatus, setPreferenceStatus] = useState("");
+  const [passwordValue, setPasswordValue] = useState("");
+  const [passwordIncorrect, setPasswordIncorrect] = useState(false);
+  const [passwordProtected, setPasswordProtected] = useState(false);
+  const [pendingRecovery, setPendingRecovery] = useState<RecoverySnapshot | null>(null);
   const browserFileInput = useRef<HTMLInputElement>(null);
   const mergeFileInput = useRef<HTMLInputElement>(null);
   const imageFileInput = useRef<HTMLInputElement>(null);
@@ -981,6 +1258,10 @@ export default function App() {
   const pendingImage = useRef<{ page: number; x: number; y: number } | null>(null);
   const lastRenderedBytes = useRef<Uint8Array | null>(null);
   const renderGeneration = useRef(0);
+  const passwordUpdater = useRef<((password: string) => void) | null>(null);
+  const passwordLoadingTask = useRef<ReturnType<typeof getDocument> | null>(null);
+  const allowWindowClose = useRef(false);
+  const dirtyRef = useRef(false);
   const ocrAttemptedBytes = useRef<Uint8Array | null>(null);
   const ocrWorker = useRef<TesseractWorker | null>(null);
   const ocrCancelRequested = useRef(false);
@@ -992,10 +1273,84 @@ export default function App() {
     return "unknown";
   }, []);
   const documentPrepared = Boolean(
+    !passwordProtected &&
     pdfDocument &&
     pages.length === pdfDocument.numPages &&
     preparedPageCount === pdfDocument.numPages
   );
+  const selectedAnnotation = useMemo(
+    () => editor.annotations.find((annotation) => annotation.id === selectedAnnotationId) ?? null,
+    [editor.annotations, selectedAnnotationId]
+  );
+  const recoveryId = useMemo(
+    () => isTauri() ? getCurrentWebview().label : "browser-main",
+    []
+  );
+
+  useEffect(() => {
+    dirtyRef.current = editor.isDirty;
+  }, [editor.isDirty]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void readRecovery(recoveryId).then((snapshot) => {
+      if (cancelled || !snapshot || editor.bytes) return;
+      setPendingRecovery(snapshot);
+      setActiveDialog("recovery");
+    }).catch(() => {
+      // Recovery is best-effort and must never prevent the editor from opening.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [editor.bytes, recoveryId]);
+
+  useEffect(() => {
+    if (!editor.isDirty || !editor.bytes) return;
+    const timeout = window.setTimeout(() => {
+      const bytes = new Uint8Array(editor.bytes!);
+      void saveRecovery({
+        id: recoveryId,
+        fileName,
+        sourcePath,
+        bytes: bytes.buffer,
+        annotations: clonePlain(editor.annotations),
+        updatedAt: Date.now()
+      }).catch(() => undefined);
+    }, 900);
+    return () => window.clearTimeout(timeout);
+  }, [
+    editor.annotations,
+    editor.bytes,
+    editor.isDirty,
+    fileName,
+    recoveryId,
+    sourcePath
+  ]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current || allowWindowClose.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    if (!isTauri()) {
+      return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    }
+    let dispose: (() => void) | undefined;
+    void getCurrentWindow().onCloseRequested((event) => {
+      if (!dirtyRef.current || allowWindowClose.current) return;
+      event.preventDefault();
+      setActiveDialog("unsaved-close");
+    }).then((unlisten) => {
+      dispose = unlisten;
+    });
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      dispose?.();
+    };
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
@@ -1132,7 +1487,21 @@ export default function App() {
     setError(null);
     let nextDocument: PDFDocumentProxy | null = null;
     try {
-      nextDocument = await getDocument({ data: cloneForPdfJs(data) }).promise;
+      const loadingTask = getDocument({ data: cloneForPdfJs(data) });
+      passwordLoadingTask.current = loadingTask;
+      loadingTask.onPassword = (updatePassword: (password: string) => void, reason: number) => {
+        if (generation !== renderGeneration.current) return;
+        passwordUpdater.current = updatePassword;
+        setPasswordProtected(true);
+        setPasswordIncorrect(reason === PasswordResponses.INCORRECT_PASSWORD);
+        setPasswordValue("");
+        setBusy(false);
+        setActiveDialog("password");
+      };
+      nextDocument = await loadingTask.promise;
+      passwordLoadingTask.current = null;
+      passwordUpdater.current = null;
+      setActiveDialog((current) => current === "password" ? null : current);
       if (generation !== renderGeneration.current) {
         await nextDocument.destroy();
         return;
@@ -1201,6 +1570,7 @@ export default function App() {
     setFileName(name);
     setSourcePath(path);
     setError(null);
+    setPasswordProtected(false);
     if (isTauri()) {
       const windowLabel = getCurrentWebview().label;
       void invoke("mark_window_document_open", { windowLabel });
@@ -1412,8 +1782,13 @@ export default function App() {
     setCurrentPage(match.page);
     setSelectedPage(match.page);
     window.document
-      .getElementById(`search-match-${match.id}`)
+      .getElementById(`page-${match.page}`)
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => {
+      window.document
+        .getElementById(`search-match-${match.id}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 180);
   }, [searchResults]);
 
   useEffect(() => {
@@ -1567,16 +1942,29 @@ export default function App() {
     forceSaveAs = false,
     requestedName = fileName
   ) => {
-    const hasRedactions = editor.annotations.some((item) => item.kind === "redaction");
+    if (passwordProtected) {
+      setError(
+        "This encrypted PDF is open in protected viewing mode. SovereignPDF will not rewrite it because doing so could corrupt its encryption."
+      );
+      return false;
+    }
+    const redactedPages = new Set(
+      editor.annotations
+        .filter((item) => item.kind === "redaction")
+        .map((item) => item.page)
+    );
+    const hasRedactions = redactedPages.size > 0;
     const shouldFlatten = preferences.flattenAnnotations || hasRedactions;
     const prepared = shouldFlatten ? await editor.flattened() : editor.bytes;
     if (!prepared) return false;
     const bytes = hasRedactions
-      ? await rasterizeForSecureRedaction(prepared)
+      ? await rasterizeForSecureRedaction(prepared, redactedPages)
       : prepared;
     if (!isTauri()) {
       downloadBytes(bytes, requestedName);
       setFileName(requestedName);
+      editor.markSaved();
+      void clearRecovery(recoveryId).catch(() => undefined);
       return true;
     }
     let path = forceSaveAs ? null : sourcePath;
@@ -1600,8 +1988,65 @@ export default function App() {
     await writeFile(path, bytes);
     setSourcePath(path);
     setFileName(baseName(path));
+    editor.markSaved();
+    void clearRecovery(recoveryId).catch(() => undefined);
     return true;
-  }, [downloadBytes, editor, fileName, preferences, sourcePath]);
+  }, [
+    downloadBytes,
+    editor,
+    fileName,
+    passwordProtected,
+    preferences,
+    recoveryId,
+    sourcePath
+  ]);
+
+  const submitPassword = useCallback(() => {
+    if (!passwordValue || !passwordUpdater.current) return;
+    const updatePassword = passwordUpdater.current;
+    setActiveDialog(null);
+    setBusy(true);
+    setLoadingStage(passwordIncorrect ? "Trying password again…" : "Unlocking PDF…");
+    updatePassword(passwordValue);
+    setPasswordValue("");
+  }, [passwordIncorrect, passwordValue]);
+
+  const cancelPassword = useCallback(() => {
+    renderGeneration.current += 1;
+    passwordUpdater.current = null;
+    const task = passwordLoadingTask.current;
+    passwordLoadingTask.current = null;
+    void task?.destroy();
+    lastRenderedBytes.current = null;
+    editor.clear();
+    setPdfDocument(null);
+    setPages([]);
+    setPreparedPageCount(0);
+    setFileName("No document open");
+    setSourcePath(null);
+    setBusy(false);
+    setActiveDialog(null);
+    setError("The password-protected PDF was not opened.");
+  }, [editor]);
+
+  const recoverUnsavedWork = useCallback(() => {
+    if (!pendingRecovery) return;
+    editor.restore(
+      new Uint8Array(pendingRecovery.bytes),
+      pendingRecovery.annotations
+    );
+    setFileName(pendingRecovery.fileName);
+    setSourcePath(pendingRecovery.sourcePath);
+    setPendingRecovery(null);
+    setActiveDialog(null);
+    setSuccessMessage("Your locally recovered unsaved work has been restored.");
+  }, [editor, pendingRecovery]);
+
+  const discardRecovery = useCallback(() => {
+    void clearRecovery(recoveryId).catch(() => undefined);
+    setPendingRecovery(null);
+    setActiveDialog(null);
+  }, [recoveryId]);
 
   const requestSave = useCallback((forceSaveAs = false) => {
     if (!forceSaveAs && isTauri() && sourcePath) {
@@ -1616,6 +2061,25 @@ export default function App() {
     setSaveForceAs(forceSaveAs || !sourcePath);
     setActiveDialog("save");
   }, [fileName, preferences.confirmOverwrite, savePdf, sourcePath]);
+
+  const closeAfterSaving = useCallback(async () => {
+    setDialogBusy(true);
+    try {
+      const saved = await savePdf(!sourcePath);
+      if (!saved) return;
+      allowWindowClose.current = true;
+      if (isTauri()) await getCurrentWindow().close();
+    } finally {
+      setDialogBusy(false);
+    }
+  }, [savePdf, sourcePath]);
+
+  const discardAndClose = useCallback(async () => {
+    await clearRecovery(recoveryId).catch(() => undefined);
+    allowWindowClose.current = true;
+    setActiveDialog(null);
+    if (isTauri()) await getCurrentWindow().close();
+  }, [recoveryId]);
 
   const confirmOverwriteSave = useCallback(async () => {
     setDialogBusy(true);
@@ -2078,6 +2542,68 @@ export default function App() {
           </p>
         </AppDialog>
       )}
+      {activeDialog === "password" && (
+        <AppDialog
+          title="Password required"
+          description={passwordIncorrect
+            ? "That password was not accepted. Check it and try again."
+            : "This PDF is encrypted. Enter its password to open it locally."}
+          confirmLabel="Unlock PDF"
+          confirmDisabled={!passwordValue}
+          onCancel={cancelPassword}
+          onConfirm={submitPassword}
+        >
+          <label className="block text-xs font-medium text-zinc-300" htmlFor="pdf-password">
+            PDF password
+          </label>
+          <input
+            id="pdf-password"
+            autoFocus
+            type="password"
+            autoComplete="off"
+            value={passwordValue}
+            onChange={(event) => setPasswordValue(event.target.value)}
+            aria-invalid={passwordIncorrect}
+            className={`mt-2 h-10 w-full rounded-md border bg-[#15171b] px-3 text-sm text-zinc-100 outline-none ${
+              passwordIncorrect ? "border-red-500/80" : "border-white/15 focus:border-orange-500/70"
+            }`}
+          />
+          <p className="mt-2 text-[11px] leading-5 text-zinc-500">
+            The password remains only in memory for this window. It is never saved, logged, or transmitted.
+          </p>
+        </AppDialog>
+      )}
+      {activeDialog === "recovery" && pendingRecovery && (
+        <AppDialog
+          title="Recover unsaved work?"
+          description={`SovereignPDF found a local recovery snapshot from ${new Date(pendingRecovery.updatedAt).toLocaleString()}.`}
+          confirmLabel="Recover"
+          secondaryLabel="Discard snapshot"
+          onSecondary={discardRecovery}
+          onCancel={() => setActiveDialog(null)}
+          onConfirm={recoverUnsavedWork}
+        >
+          <p className="text-xs leading-5 text-zinc-300">
+            Recover changes to <strong>{pendingRecovery.fileName}</strong>. The snapshot is stored only on this device.
+          </p>
+        </AppDialog>
+      )}
+      {activeDialog === "unsaved-close" && (
+        <AppDialog
+          title="Save changes before closing?"
+          description="This window contains changes that have not been saved."
+          confirmLabel="Save and close"
+          secondaryLabel="Discard and close"
+          busy={dialogBusy}
+          onSecondary={discardAndClose}
+          onCancel={() => setActiveDialog(null)}
+          onConfirm={closeAfterSaving}
+        >
+          <p className="text-xs leading-5 text-zinc-300">
+            Cancel keeps this window open. Discard removes its local recovery snapshot.
+          </p>
+        </AppDialog>
+      )}
       {activeDialog === "overwrite" && (
         <AppDialog
           title="Overwrite current PDF?"
@@ -2302,8 +2828,8 @@ export default function App() {
         <div className="flex shrink-0 flex-col justify-start gap-2 border-r border-white/10 px-2 pb-1 pt-2">
           <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-orange-400/80">Markup</span>
           <div className="flex items-center">
-            <button className={iconButton + selectedToolClass("select")} onClick={() => setActiveTool("select")}><MousePointer2 size={16} /> Select</button>
-            <button className={iconButton + selectedToolClass("text")} onClick={() => setActiveTool("text")} disabled={!pdfDocument}><Type size={16} /> Text</button>
+            <button aria-label="Select" className={iconButton + selectedToolClass("select")} onClick={() => setActiveTool("select")}><MousePointer2 size={16} /> Select</button>
+            <button className={iconButton + selectedToolClass("text")} onClick={() => setActiveTool("text")} disabled={!pdfDocument || passwordProtected}><Type size={16} /> Text</button>
             {activeTool === "text" && (
               <div className="ml-1 flex h-9 items-center gap-1 rounded-md border border-white/10 bg-black/15 px-1.5">
                 <select
@@ -2350,10 +2876,10 @@ export default function App() {
                 />
               </div>
             )}
-            <button className={iconButton + selectedToolClass("pen")} onClick={() => setActiveTool("pen")} disabled={!pdfDocument}><PenLine size={16} /> Pen</button>
-            <button className={iconButton + selectedToolClass("highlight")} onClick={() => setActiveTool("highlight")} disabled={!pdfDocument}><Highlighter size={16} /> Highlight</button>
-            <button className={iconButton + selectedToolClass("image")} onClick={() => setActiveTool("image")} disabled={!pdfDocument}><ImagePlus size={16} /> Image</button>
-            <button className={iconButton + selectedToolClass("redact")} onClick={() => setActiveTool("redact")} disabled={!pdfDocument}><ScanLine size={16} /> Redact</button>
+            <button className={iconButton + selectedToolClass("pen")} onClick={() => setActiveTool("pen")} disabled={!pdfDocument || passwordProtected}><PenLine size={16} /> Pen</button>
+            <button className={iconButton + selectedToolClass("highlight")} onClick={() => setActiveTool("highlight")} disabled={!pdfDocument || passwordProtected}><Highlighter size={16} /> Highlight</button>
+            <button className={iconButton + selectedToolClass("image")} onClick={() => setActiveTool("image")} disabled={!pdfDocument || passwordProtected}><ImagePlus size={16} /> Image</button>
+            <button className={iconButton + selectedToolClass("redact")} onClick={() => setActiveTool("redact")} disabled={!pdfDocument || passwordProtected}><ScanLine size={16} /> Redact</button>
           </div>
         </div>
 
@@ -2368,9 +2894,9 @@ export default function App() {
             >
               <ScanText size={16} /> {ocrRunning ? `${Math.round(ocrProgress * 100)}%` : "OCR"}
             </button>
-            <button className={iconButton} disabled={!pdfDocument} onClick={() => void editor.flattenForms()} title="Flatten interactive form fields"><FileCheck2 size={16} /> Forms</button>
-            <button className={iconButton} disabled={!pdfDocument} onClick={() => void editor.optimize()} title="Recompress PDF structure"><Minimize2 size={16} /> Optimize</button>
-            <button className={iconButton} disabled={!pdfDocument} onClick={() => void editor.sanitize()} title="Remove document metadata"><ShieldCheck size={16} /> Sanitize</button>
+            <button className={iconButton} disabled={!documentPrepared} onClick={() => void editor.flattenForms()} title="Flatten interactive form fields"><FileCheck2 size={16} /> Forms</button>
+            <button className={iconButton} disabled={!documentPrepared} onClick={() => void editor.optimize()} title="Recompress PDF structure"><Minimize2 size={16} /> Optimize</button>
+            <button className={iconButton} disabled={!documentPrepared} onClick={() => void editor.sanitize()} title="Remove document metadata"><ShieldCheck size={16} /> Sanitize</button>
           </div>
         </div>
 
@@ -2448,12 +2974,12 @@ export default function App() {
         <div className="flex min-w-0 flex-[2.4_1_0%] flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2">
           <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-orange-400/80">Markup</span>
           <div className="flex justify-center">
-            <button className={compactToolButton + selectedToolClass("select")} data-tooltip="Select, move, resize, or delete an annotation" onClick={() => setActiveTool("select")}><MousePointer2 size={16} /><span className="hidden min-[1400px]:inline">Select</span></button>
-            <button className={compactToolButton + selectedToolClass("text")} data-tooltip="Click a page to place and edit a text box" onClick={() => setActiveTool("text")} disabled={!pdfDocument}><Type size={16} /><span className="hidden min-[1400px]:inline">Text</span></button>
-            <button className={compactToolButton + selectedToolClass("pen")} data-tooltip="Draw freehand ink on a page" onClick={() => setActiveTool("pen")} disabled={!pdfDocument}><PenLine size={16} /><span className="hidden min-[1400px]:inline">Pen</span></button>
-            <button className={compactToolButton + selectedToolClass("highlight")} data-tooltip="Draw a translucent highlight over page content" onClick={() => setActiveTool("highlight")} disabled={!pdfDocument}><Highlighter size={16} /><span className="hidden min-[1400px]:inline">Highlight</span></button>
-            <button className={compactToolButton + selectedToolClass("image")} data-tooltip="Click a page to insert a local image or signature" onClick={() => setActiveTool("image")} disabled={!pdfDocument}><ImagePlus size={16} /><span className="hidden min-[1400px]:inline">Image</span></button>
-            <button className={compactToolButton + selectedToolClass("redact")} data-tooltip="Drag over content to permanently cover it when exported" onClick={() => setActiveTool("redact")} disabled={!pdfDocument}><ScanLine size={16} /><span className="hidden min-[1400px]:inline">Redact</span></button>
+            <button aria-label="Select" className={compactToolButton + selectedToolClass("select")} data-tooltip="Select, move, resize, or delete an annotation" onClick={() => setActiveTool("select")}><MousePointer2 size={16} /><span className="hidden min-[1400px]:inline">Select</span></button>
+            <button className={compactToolButton + selectedToolClass("text")} data-tooltip="Click a page to place and edit a text box" onClick={() => setActiveTool("text")} disabled={!pdfDocument || passwordProtected}><Type size={16} /><span className="hidden min-[1400px]:inline">Text</span></button>
+            <button className={compactToolButton + selectedToolClass("pen")} data-tooltip="Draw freehand ink on a page" onClick={() => setActiveTool("pen")} disabled={!pdfDocument || passwordProtected}><PenLine size={16} /><span className="hidden min-[1400px]:inline">Pen</span></button>
+            <button className={compactToolButton + selectedToolClass("highlight")} data-tooltip="Draw a translucent highlight over page content" onClick={() => setActiveTool("highlight")} disabled={!pdfDocument || passwordProtected}><Highlighter size={16} /><span className="hidden min-[1400px]:inline">Highlight</span></button>
+            <button className={compactToolButton + selectedToolClass("image")} data-tooltip="Click a page to insert a local image or signature" onClick={() => setActiveTool("image")} disabled={!pdfDocument || passwordProtected}><ImagePlus size={16} /><span className="hidden min-[1400px]:inline">Image</span></button>
+            <button className={compactToolButton + selectedToolClass("redact")} data-tooltip="Drag over content to permanently cover it when exported" onClick={() => setActiveTool("redact")} disabled={!pdfDocument || passwordProtected}><ScanLine size={16} /><span className="hidden min-[1400px]:inline">Redact</span></button>
           </div>
         </div>
 
@@ -2461,18 +2987,18 @@ export default function App() {
           <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
           <div className="flex justify-center">
             <ToolbarDropdown label="Document" tooltip="Open document-wide cleanup and export tools" icon={<FileCheck2 size={16} />}>
-              <button data-tooltip="Make form values permanent page content; fields can no longer be edited" className={dropdownItem} disabled={!pdfDocument} onClick={() => void editor.flattenForms()}><FileCheck2 size={15} /> Flatten forms</button>
-              <button data-tooltip="Compress PDF structure; images are unchanged, so size may not decrease" className={dropdownItem} disabled={!pdfDocument} onClick={() => void editor.optimize()}><Minimize2 size={15} /> Optimize PDF</button>
-              <button data-tooltip="Clear basic metadata only; attachments, scripts, layers, and comments may remain" className={dropdownItem} disabled={!pdfDocument} onClick={() => void editor.sanitize()}><ShieldCheck size={15} /> Sanitize metadata</button>
+              <button data-tooltip="Make form values permanent page content; fields can no longer be edited" className={dropdownItem} disabled={!documentPrepared} onClick={() => void editor.flattenForms()}><FileCheck2 size={15} /> Flatten forms</button>
+              <button data-tooltip="Compress PDF structure; images are unchanged, so size may not decrease" className={dropdownItem} disabled={!documentPrepared} onClick={() => void editor.optimize()}><Minimize2 size={15} /> Optimize PDF</button>
+              <button data-tooltip="Clear basic metadata only; attachments, scripts, layers, and comments may remain" className={dropdownItem} disabled={!documentPrepared} onClick={() => void editor.sanitize()}><ShieldCheck size={15} /> Sanitize metadata</button>
             </ToolbarDropdown>
           </div>
         </div>
         <div className="hidden min-w-0 flex-[2_1_0%] flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1680px]:flex">
           <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
           <div className="flex justify-center">
-            <button className={iconButton + " toolbar-tooltip"} disabled={!pdfDocument} onClick={() => void editor.flattenForms()} data-tooltip="Make form values permanent page content; fields can no longer be edited"><FileCheck2 size={16} /> Flatten Forms</button>
-            <button className={iconButton + " toolbar-tooltip"} disabled={!pdfDocument} onClick={() => void editor.optimize()} data-tooltip="Compress PDF structure; images are unchanged, so size may not decrease"><Minimize2 size={16} /> Optimize</button>
-            <button className={iconButton + " toolbar-tooltip"} disabled={!pdfDocument} onClick={() => void editor.sanitize()} data-tooltip="Clear basic metadata only; attachments, scripts, layers, and comments may remain"><ShieldCheck size={16} /> Sanitize</button>
+            <button className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void editor.flattenForms()} data-tooltip="Make form values permanent page content; fields can no longer be edited"><FileCheck2 size={16} /> Flatten Forms</button>
+            <button className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void editor.optimize()} data-tooltip="Compress PDF structure; images are unchanged, so size may not decrease"><Minimize2 size={16} /> Optimize</button>
+            <button className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void editor.sanitize()} data-tooltip="Clear basic metadata only; attachments, scripts, layers, and comments may remain"><ShieldCheck size={16} /> Sanitize</button>
           </div>
         </div>
 
@@ -2606,6 +3132,131 @@ export default function App() {
         )}
 
         <section className="relative flex min-w-0 flex-1 flex-col bg-[#30343b]">
+          {selectedAnnotation && activeTool === "select" && (
+            <div
+              role="toolbar"
+              aria-label={`Edit selected ${selectedAnnotation.kind} annotation`}
+              className="absolute left-1/2 top-3 z-40 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 overflow-x-auto rounded-lg border border-white/15 bg-[#202329]/95 p-2 shadow-2xl backdrop-blur"
+            >
+              <span className="shrink-0 px-1 text-[10px] font-semibold uppercase tracking-wider text-orange-300">
+                {selectedAnnotation.kind}
+              </span>
+              {selectedAnnotation.kind === "text" && (
+                <>
+                  <input
+                    key={`${selectedAnnotation.id}-${selectedAnnotation.text}`}
+                    aria-label="Selected text content"
+                    defaultValue={selectedAnnotation.text}
+                    className="h-8 w-44 rounded border border-white/15 bg-black/25 px-2 text-xs text-zinc-100 outline-none focus:border-orange-500"
+                    onBlur={(event) => {
+                      const text = event.currentTarget.value.trim();
+                      if (text && text !== selectedAnnotation.text) {
+                        editor.updateAnnotation(selectedAnnotation.id, { text }, "Edit text");
+                      }
+                    }}
+                  />
+                  <select
+                    aria-label="Selected text font"
+                    value={selectedAnnotation.fontFamily}
+                    onChange={(event) => editor.updateAnnotation(selectedAnnotation.id, {
+                      fontFamily: event.target.value as TextStyle["fontFamily"]
+                    }, "Change text font")}
+                    className="h-8 rounded border border-white/15 bg-[#15171b] px-2 text-xs text-zinc-200"
+                  >
+                    <option value="helvetica">Arial</option>
+                    <option value="times">Times</option>
+                    <option value="courier">Courier</option>
+                  </select>
+                  <input
+                    aria-label="Selected text size"
+                    type="number"
+                    min="6"
+                    max="96"
+                    value={selectedAnnotation.size}
+                    onChange={(event) => editor.updateAnnotation(selectedAnnotation.id, {
+                      size: Math.min(96, Math.max(6, Number(event.target.value) || 6))
+                    }, "Change text size")}
+                    className="h-8 w-14 rounded border border-white/15 bg-[#15171b] px-2 text-xs text-zinc-200"
+                  />
+                  <button
+                    type="button"
+                    aria-pressed={selectedAnnotation.bold}
+                    className={`h-8 w-8 rounded text-xs font-bold ${selectedAnnotation.bold ? "bg-orange-500/25 text-orange-200" : "text-zinc-300 hover:bg-white/10"}`}
+                    onClick={() => editor.updateAnnotation(selectedAnnotation.id, {
+                      bold: !selectedAnnotation.bold
+                    }, "Toggle bold")}
+                  >
+                    B
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={selectedAnnotation.italic}
+                    className={`h-8 w-8 rounded text-xs italic ${selectedAnnotation.italic ? "bg-orange-500/25 text-orange-200" : "text-zinc-300 hover:bg-white/10"}`}
+                    onClick={() => editor.updateAnnotation(selectedAnnotation.id, {
+                      italic: !selectedAnnotation.italic
+                    }, "Toggle italic")}
+                  >
+                    I
+                  </button>
+                </>
+              )}
+              {(selectedAnnotation.kind === "text" ||
+                selectedAnnotation.kind === "pen" ||
+                selectedAnnotation.kind === "highlight") && (
+                <input
+                  aria-label="Selected annotation color"
+                  type="color"
+                  value={selectedAnnotation.color}
+                  onChange={(event) => editor.updateAnnotation(selectedAnnotation.id, {
+                    color: event.target.value
+                  }, `Recolor ${selectedAnnotation.kind}`)}
+                  className="h-8 w-9 cursor-pointer rounded border-0 bg-transparent"
+                />
+              )}
+              {(selectedAnnotation.kind === "pen" || selectedAnnotation.kind === "highlight") && (
+                <input
+                  aria-label="Selected stroke width"
+                  type="range"
+                  min="1"
+                  max={selectedAnnotation.kind === "highlight" ? "60" : "20"}
+                  value={selectedAnnotation.width}
+                  onChange={(event) => editor.updateAnnotation(selectedAnnotation.id, {
+                    width: Number(event.target.value)
+                  }, "Change stroke width")}
+                  className="w-24 accent-orange-500"
+                />
+              )}
+              {selectedAnnotation.kind === "highlight" && (
+                <input
+                  aria-label="Selected highlight opacity"
+                  type="range"
+                  min="10"
+                  max="80"
+                  value={Math.round(selectedAnnotation.opacity * 100)}
+                  onChange={(event) => editor.updateAnnotation(selectedAnnotation.id, {
+                    opacity: Number(event.target.value) / 100
+                  }, "Change highlight opacity")}
+                  className="w-24 accent-yellow-400"
+                />
+              )}
+              {selectedAnnotation.kind === "redaction" && (
+                <span className="whitespace-nowrap text-[10px] text-zinc-400">
+                  Secure export · black only
+                </span>
+              )}
+              <button
+                type="button"
+                aria-label={`Delete selected ${selectedAnnotation.kind}`}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-red-300 hover:bg-red-500/15"
+                onClick={() => {
+                  editor.removeAnnotation(selectedAnnotation.id);
+                  setSelectedAnnotationId(null);
+                }}
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          )}
           {!pdfDocument && !busy ? (
             <button onClick={openPdf} className="m-auto flex max-w-md flex-col items-center rounded-2xl border border-dashed border-zinc-500 px-16 py-14 text-zinc-300 transition hover:border-accent hover:bg-white/5">
               <FolderOpen size={42} strokeWidth={1.4} className="mb-4 text-zinc-400" />
@@ -2616,7 +3267,7 @@ export default function App() {
           ) : (
             <div ref={workspaceRef} className="flex min-h-0 flex-1 flex-col items-center gap-6 overflow-auto p-8">
               {pages.map((page) => (
-                <PageCanvas
+                <VirtualizedPage
                   key={page.pageNumber}
                   page={page}
                   scale={zoom}

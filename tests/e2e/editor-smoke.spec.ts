@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 async function syntheticPdf() {
   const pdf = await PDFDocument.create();
@@ -32,6 +33,19 @@ async function imageOnlyPdf() {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([612, 792]);
   page.drawRectangle({ x: 72, y: 620, width: 468, height: 80 });
+  return Buffer.from(await pdf.save());
+}
+
+async function largePdf(pageCount = 120) {
+  const pdf = await PDFDocument.create();
+  for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+    const page = pdf.addPage([612, 792]);
+    page.drawText(`Large document page ${pageNumber}`, {
+      x: 72,
+      y: 700,
+      size: 18
+    });
+  }
   return Buffer.from(await pdf.save());
 }
 
@@ -187,6 +201,21 @@ test("loads, searches, rotates, annotates, and restores history", async ({
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Redo" }).click();
   await expect(page.getByText("Regression note", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Select" }).click();
+  await page.locator('[data-annotation-kind="text"]').click();
+  const annotationToolbar = page.getByRole("toolbar", {
+    name: "Edit selected text annotation"
+  });
+  await expect(annotationToolbar).toBeVisible();
+  const selectedText = annotationToolbar.getByRole("textbox", {
+    name: "Selected text content"
+  });
+  await selectedText.fill("Edited regression note");
+  await selectedText.blur();
+  await expect(
+    page.getByText("Edited regression note", { exact: true })
+  ).toBeVisible();
 });
 
 test("toolbar does not overflow at the minimum window size", async ({
@@ -199,6 +228,115 @@ test("toolbar does not overflow at the minimum window size", async ({
     scrollWidth: document.body.scrollWidth
   }));
   expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
+});
+
+test("keeps distant pages virtualized in a large document", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  const pdfInputs = page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  );
+  await pdfInputs.nth(0).setInputFiles({
+    name: "large.pdf",
+    mimeType: "application/pdf",
+    buffer: await largePdf()
+  });
+
+  await expect(page.getByText("120 pages", { exact: true })).toBeVisible();
+  await expect(page.locator("[data-virtual-page]")).toHaveCount(120);
+  await expect
+    .poll(() => page.locator("[data-page-mounted]").count())
+    .toBeLessThan(20);
+});
+
+test("secure redaction removes underlying text only from affected pages", async ({
+  page
+}) => {
+  test.setTimeout(60_000);
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "redaction.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+  await expect(page.getByText("3 pages", { exact: true })).toBeVisible();
+
+  await page.locator(
+    'button[data-tooltip="Drag over content to permanently cover it when exported"]'
+  ).click();
+  const layer = page.locator('[aria-label="Page 1"] [aria-label="Annotation layer"]');
+  await layer.dragTo(layer, {
+    sourcePosition: { x: 60, y: 70 },
+    targetPosition: { x: 360, y: 130 }
+  });
+
+  await page.getByRole("button", { name: "Save PDF As" }).click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Continue" }).click();
+  const download = await downloadPromise;
+  const path = await download.path();
+  expect(path).toBeTruthy();
+  const bytes = new Uint8Array(await import("node:fs/promises").then((fs) =>
+    fs.readFile(path!)
+  ));
+  const pdf = await getDocument({ data: bytes }).promise;
+  const pageOneText = (await (await pdf.getPage(1)).getTextContent()).items
+    .map((item) => "str" in item ? item.str : "")
+    .join(" ");
+  const pageTwoText = (await (await pdf.getPage(2)).getTextContent()).items
+    .map((item) => "str" in item ? item.str : "")
+    .join(" ");
+  expect(pageOneText).not.toContain("SovereignPDF Regression Test");
+  expect(pageTwoText).toContain("SovereignPDF Regression Test");
+  await pdf.destroy();
+});
+
+test("protects unsaved work and writes a local recovery snapshot", async ({
+  page
+}) => {
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "recovery.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+  await page.locator(
+    'button[data-tooltip="Click a page to place and edit a text box"]'
+  ).click();
+  await page.locator('[aria-label="Page 1"]').click({
+    position: { x: 180, y: 120 }
+  });
+  const input = page.getByRole("textbox", { name: "Text annotation" });
+  await input.fill("Recover this note");
+  await input.press("Enter");
+
+  await expect.poll(async () => page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("sovereignpdf-local-recovery", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const snapshot = await new Promise<{ annotations?: unknown[] } | undefined>(
+      (resolve, reject) => {
+        const request = db.transaction("snapshots").objectStore("snapshots").get("browser-main");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      }
+    );
+    db.close();
+    return snapshot?.annotations?.length ?? 0;
+  })).toBe(1);
+
+  const closeWasPrevented = await page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(closeWasPrevented).toBe(true);
 });
 
 test("starts offline OCR in the background for an image-only PDF", async ({
