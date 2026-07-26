@@ -71,6 +71,37 @@ test("shows a visible error when a selected PDF cannot be parsed", async ({ page
   await expect(page.getByRole("alert")).toContainText("Unable to open PDF");
 });
 
+test("shows document and page loading feedback instead of a blank preview", async ({
+  page
+}) => {
+  await page.addInitScript(() => {
+    const readBlob = Blob.prototype.arrayBuffer;
+    Blob.prototype.arrayBuffer = async function () {
+      await new Promise((resolve) => window.setTimeout(resolve, 300));
+      return readBlob.call(this);
+    };
+  });
+  await page.goto("/");
+  const pdfInputs = page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  );
+  await pdfInputs.nth(0).setInputFiles({
+    name: "loading-state.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+
+  const loadingStatus = page.getByRole("status", {
+    name: "Document loading status"
+  });
+  await expect(loadingStatus).toBeVisible();
+  await expect(loadingStatus).toContainText("Reading loading-state.pdf");
+  await expect(page.locator('[aria-label="Page 1"]')).toBeVisible();
+  await expect(
+    page.getByRole("status", { name: "Rendering page 1" })
+  ).toBeHidden({ timeout: 15_000 });
+});
+
 test("loads, searches, rotates, annotates, and restores history", async ({
   page
 }) => {
@@ -101,7 +132,9 @@ test("loads, searches, rotates, annotates, and restores history", async ({
   const pageTwo = page.locator('[aria-label="Page 2"]');
   const pageThree = page.locator('[aria-label="Page 3"]');
 
-  await page.getByRole("button", { name: "2", exact: true }).click();
+  const pageTwoThumbnail = page.getByRole("button", { name: "2", exact: true });
+  await pageTwoThumbnail.click();
+  await expect(pageTwoThumbnail).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Right" }).click();
   await expect(page.getByRole("button", { name: "Undo" })).toBeEnabled();
   await expect
@@ -118,6 +151,8 @@ test("loads, searches, rotates, annotates, and restores history", async ({
   expect(rotated[0]?.height).toBeGreaterThan(rotated[0]?.width ?? 0);
   expect(rotated[1]?.width).toBeGreaterThan(rotated[1]?.height ?? 0);
   expect(rotated[2]?.height).toBeGreaterThan(rotated[2]?.width ?? 0);
+  await expect(pageTwoThumbnail).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByText("2 / 3", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Undo" }).click();
   await expect

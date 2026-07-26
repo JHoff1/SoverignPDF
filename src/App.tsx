@@ -22,6 +22,7 @@ import {
   FolderOpen,
   Highlighter,
   ImagePlus,
+  LoaderCircle,
   Menu,
   Minimize2,
   MousePointer2,
@@ -126,6 +127,60 @@ const DEFAULT_PREFERENCES: AppPreferences = {
   highlightStyle: { color: "#ffe45c", width: 16, opacity: 0.35 },
   recentFiles: []
 };
+
+type CachedPageRender = {
+  canvas: HTMLCanvasElement;
+  pixels: number;
+};
+
+const MAX_PAGE_RENDER_CACHE_PIXELS = 6_000_000;
+const pageRenderCache = new Map<string, CachedPageRender>();
+const pageRenderCacheIds = new WeakMap<PDFPageProxy, number>();
+let nextPageRenderCacheId = 1;
+let pageRenderCachePixels = 0;
+
+function pageRenderCacheKey(
+  page: PDFPageProxy,
+  width: number,
+  height: number,
+  ratio: number
+) {
+  let pageId = pageRenderCacheIds.get(page);
+  if (!pageId) {
+    pageId = nextPageRenderCacheId;
+    nextPageRenderCacheId += 1;
+    pageRenderCacheIds.set(page, pageId);
+  }
+  return `${pageId}:${Math.floor(width * ratio)}x${Math.floor(height * ratio)}`;
+}
+
+function getCachedPageRender(key: string) {
+  const cached = pageRenderCache.get(key);
+  if (!cached) return null;
+  pageRenderCache.delete(key);
+  pageRenderCache.set(key, cached);
+  return cached.canvas;
+}
+
+function cachePageRender(key: string, canvas: HTMLCanvasElement) {
+  const pixels = canvas.width * canvas.height;
+  if (pixels > MAX_PAGE_RENDER_CACHE_PIXELS) return;
+  const previous = pageRenderCache.get(key);
+  if (previous) {
+    pageRenderCachePixels -= previous.pixels;
+    pageRenderCache.delete(key);
+  }
+  pageRenderCache.set(key, { canvas, pixels });
+  pageRenderCachePixels += pixels;
+  while (pageRenderCachePixels > MAX_PAGE_RENDER_CACHE_PIXELS) {
+    const oldest = pageRenderCache.entries().next().value as
+      | [string, CachedPageRender]
+      | undefined;
+    if (!oldest) break;
+    pageRenderCache.delete(oldest[0]);
+    pageRenderCachePixels -= oldest[1].pixels;
+  }
+}
 
 function loadPreferences(): AppPreferences {
   try {
@@ -378,6 +433,7 @@ function PageCanvas({
   const textInputRef = useRef<HTMLInputElement>(null);
   const viewport = useMemo(() => page.getViewport({ scale }), [page, scale]);
   const [renderActive, setRenderActive] = useState(false);
+  const [rendered, setRendered] = useState(false);
   const [draft, setDraft] = useState<Point[]>([]);
   const [editingText, setEditingText] = useState<(Point & { value: string }) | null>(null);
   const [imageDraft, setImageDraft] = useState<ImageBox | null>(null);
@@ -509,7 +565,19 @@ function PageCanvas({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !renderActive) return;
+    setRendered(false);
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    const cacheKey = pageRenderCacheKey(page, viewport.width, viewport.height, ratio);
+    const cached = getCachedPageRender(cacheKey);
+    if (cached) {
+      canvas.width = cached.width;
+      canvas.height = cached.height;
+      canvas.style.width = `${Math.floor(viewport.width)}px`;
+      canvas.style.height = `${Math.floor(viewport.height)}px`;
+      canvas.getContext("2d", { alpha: false })?.drawImage(cached, 0, 0);
+      setRendered(true);
+      return;
+    }
     const nextCanvas = window.document.createElement("canvas");
     nextCanvas.width = Math.floor(viewport.width * ratio);
     nextCanvas.height = Math.floor(viewport.height * ratio);
@@ -529,6 +597,8 @@ function PageCanvas({
       canvas.style.width = `${Math.floor(viewport.width)}px`;
       canvas.style.height = `${Math.floor(viewport.height)}px`;
       canvas.getContext("2d", { alpha: false })?.drawImage(nextCanvas, 0, 0);
+      cachePageRender(cacheKey, nextCanvas);
+      setRendered(true);
     }).catch(() => {
       // Rendering cancellation is expected when pages or zoom change quickly.
     });
@@ -557,6 +627,18 @@ function PageCanvas({
           height: `${Math.ceil(viewport.height)}px`
         }}
       />
+      {!rendered && (
+        <div
+          className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-zinc-100 text-zinc-500"
+          role="status"
+          aria-label={`Rendering page ${page.pageNumber}`}
+        >
+          <div className="flex items-center gap-2 rounded-full bg-white/90 px-3 py-2 text-xs shadow-sm">
+            <LoaderCircle size={15} className="animate-spin" />
+            Rendering page {page.pageNumber}
+          </div>
+        </div>
+      )}
       <svg
         viewBox="0 0 1 1"
         preserveAspectRatio="none"
@@ -765,16 +847,19 @@ function PageCanvas({
 function Thumbnail({
   page,
   selected,
+  reorderEnabled,
   onClick,
   onMove
 }: {
   page: PDFPageProxy;
   selected: boolean;
+  reorderEnabled: boolean;
   onClick: () => void;
   onMove: (from: number, to: number) => void;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [renderActive, setRenderActive] = useState(false);
+  const [rendered, setRendered] = useState(false);
   const viewport = useMemo(() => {
     const raw = page.getViewport({ scale: 1 });
     return page.getViewport({ scale: 112 / raw.width });
@@ -796,20 +881,28 @@ function Thumbnail({
     if (!canvas || !renderActive) return;
     const context = canvas.getContext("2d", { alpha: false });
     if (!context) return;
+    setRendered(false);
     canvas.width = Math.floor(viewport.width);
     canvas.height = Math.floor(viewport.height);
     const task = page.render({ canvasContext: context, viewport });
+    void task.promise
+      .then(() => setRendered(true))
+      .catch(() => {
+        // Rendering cancellation is expected as thumbnails leave the viewport.
+      });
     return () => task.cancel();
   }, [page, renderActive, viewport]);
 
   return (
     <button
       onClick={onClick}
-      draggable
+      aria-pressed={selected}
+      draggable={reorderEnabled}
       onDragStart={(event) => event.dataTransfer.setData("text/page", String(page.pageNumber))}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
+        if (!reorderEnabled) return;
         const from = Number(event.dataTransfer.getData("text/page"));
         if (from) onMove(from, page.pageNumber);
       }}
@@ -819,11 +912,18 @@ function Thumbnail({
           : "border-transparent hover:border-zinc-600 hover:bg-white/5"
       }`}
     >
-      <canvas
-        ref={ref}
-        className="mx-auto block bg-white shadow-md"
-        style={{ width: `${Math.ceil(viewport.width)}px`, height: `${Math.ceil(viewport.height)}px` }}
-      />
+      <div className="relative mx-auto" style={{ width: `${Math.ceil(viewport.width)}px`, height: `${Math.ceil(viewport.height)}px` }}>
+        <canvas
+          ref={ref}
+          className="block bg-white shadow-md"
+          style={{ width: `${Math.ceil(viewport.width)}px`, height: `${Math.ceil(viewport.height)}px` }}
+        />
+        {!rendered && (
+          <div className="absolute inset-0 flex animate-pulse items-center justify-center bg-zinc-200 text-zinc-400">
+            <LoaderCircle size={14} className={renderActive ? "animate-spin" : ""} />
+          </div>
+        )}
+      </div>
       <span className="mt-2 block text-center text-xs text-zinc-400">
         {page.pageNumber}
       </span>
@@ -859,6 +959,9 @@ export default function App() {
   const [sidebarTab, setSidebarTab] = useState<"pages" | "bookmarks">("pages");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [loadingStage, setLoadingStage] = useState("Opening document…");
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [preparedPageCount, setPreparedPageCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [activeDialog, setActiveDialog] = useState<"preferences" | "save" | "overwrite" | "split" | "split-save" | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
@@ -877,6 +980,7 @@ export default function App() {
   const [sourcePath, setSourcePath] = useState<string | null>(null);
   const pendingImage = useRef<{ page: number; x: number; y: number } | null>(null);
   const lastRenderedBytes = useRef<Uint8Array | null>(null);
+  const renderGeneration = useRef(0);
   const ocrAttemptedBytes = useRef<Uint8Array | null>(null);
   const ocrWorker = useRef<TesseractWorker | null>(null);
   const ocrCancelRequested = useRef(false);
@@ -887,6 +991,11 @@ export default function App() {
     if (userAgent.includes("linux")) return "linux";
     return "unknown";
   }, []);
+  const documentPrepared = Boolean(
+    pdfDocument &&
+    pages.length === pdfDocument.numPages &&
+    preparedPageCount === pdfDocument.numPages
+  );
 
   useEffect(() => {
     window.localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
@@ -918,13 +1027,13 @@ export default function App() {
     setPageSearchSpans([]);
     setTextExtractionComplete(false);
     setExtractedPageCount(0);
-    setOcrText(Array.from({ length: pages.length }, () => ""));
-    setOcrSearchSpans(Array.from({ length: pages.length }, () => []));
+    setOcrText([]);
+    setOcrSearchSpans([]);
     ocrAttemptedBytes.current = null;
-  }, [pages]);
+  }, [editor.bytes]);
 
   useEffect(() => {
-    if (!pages.length) return;
+    if (!pdfDocument || pages.length !== pdfDocument.numPages) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void (async () => {
@@ -972,7 +1081,7 @@ export default function App() {
       window.clearTimeout(timer);
       cancelled = true;
     };
-  }, [pages]);
+  }, [pages, pdfDocument]);
 
   useEffect(() => {
     const handleFindShortcut = (event: KeyboardEvent) => {
@@ -1015,26 +1124,68 @@ export default function App() {
   }, [editor.annotations, selectedAnnotationId]);
 
   const renderPdf = useCallback(async (data: Uint8Array) => {
+    const generation = ++renderGeneration.current;
     setBusy(true);
+    setLoadingStage("Reading document structure…");
+    setLoadingProgress(0.08);
+    setPreparedPageCount(0);
     setError(null);
+    let nextDocument: PDFDocumentProxy | null = null;
     try {
-      const nextDocument = await getDocument({ data: cloneForPdfJs(data) }).promise;
-      const nextPages = await Promise.all(
-        Array.from({ length: nextDocument.numPages }, (_, index) =>
-          nextDocument.getPage(index + 1)
-        )
-      );
+      nextDocument = await getDocument({ data: cloneForPdfJs(data) }).promise;
+      if (generation !== renderGeneration.current) {
+        await nextDocument.destroy();
+        return;
+      }
+
+      setLoadingStage("Preparing the first page…");
+      setLoadingProgress(0.18);
+      const firstPage = await nextDocument.getPage(1);
+      if (generation !== renderGeneration.current) {
+        await nextDocument.destroy();
+        return;
+      }
+
+      const openedDocument = nextDocument;
       setPdfDocument((previous) => {
         previous?.destroy();
-        return nextDocument;
+        return openedDocument;
       });
-      setPages(nextPages);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to open this PDF.");
-    } finally {
+      setPages([firstPage]);
+      setPreparedPageCount(1);
+      setLoadingProgress(openedDocument.numPages === 1 ? 1 : 0.25);
       setBusy(false);
+
+      const loadedPages = [firstPage];
+      const batchSize = 6;
+      for (let start = 2; start <= openedDocument.numPages; start += batchSize) {
+        await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+        const end = Math.min(openedDocument.numPages, start + batchSize - 1);
+        const batch = await Promise.all(
+          Array.from({ length: end - start + 1 }, (_, index) =>
+            openedDocument.getPage(start + index)
+          )
+        );
+        if (generation !== renderGeneration.current) return;
+        loadedPages.push(...batch);
+        setPages([...loadedPages]);
+        setPreparedPageCount(end);
+        setLoadingStage(`Preparing pages ${end} of ${openedDocument.numPages}…`);
+        setLoadingProgress(0.25 + (end / openedDocument.numPages) * 0.75);
+      }
+      setLoadingProgress(1);
+    } catch (cause) {
+      if (generation !== renderGeneration.current) return;
+      lastRenderedBytes.current = null;
+      setError(cause instanceof Error ? cause.message : "Unable to open this PDF.");
+      if (!pdfDocument) {
+        setPages([]);
+        setPdfDocument(null);
+      }
+    } finally {
+      if (generation === renderGeneration.current) setBusy(false);
     }
-  }, []);
+  }, [pdfDocument]);
 
   useEffect(() => {
     if (!editor.bytes || editor.bytes === lastRenderedBytes.current) return;
@@ -1043,6 +1194,9 @@ export default function App() {
   }, [editor.bytes, renderPdf]);
 
   const loadPdf = useCallback((data: ArrayBuffer, name: string, path: string | null = null) => {
+    setBusy(true);
+    setLoadingStage(`Opening ${name}…`);
+    setLoadingProgress(0.04);
     editor.load(new Uint8Array(data));
     setFileName(name);
     setSourcePath(path);
@@ -1063,6 +1217,19 @@ export default function App() {
     setViewMode("fit-page");
   }, [editor.load]);
 
+  const readAndLoadPdf = useCallback(async (path: string) => {
+    setBusy(true);
+    setLoadingStage(`Reading ${baseName(path)}…`);
+    setLoadingProgress(0.02);
+    setError(null);
+    try {
+      loadPdf(await readLocalPdf(path), baseName(path), path);
+    } catch (cause) {
+      setBusy(false);
+      throw cause;
+    }
+  }, [loadPdf]);
+
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
@@ -1073,7 +1240,7 @@ export default function App() {
       if (!path.toLowerCase().endsWith(".pdf") || opened.has(path)) return;
       opened.add(path);
       try {
-        loadPdf(await readLocalPdf(path), baseName(path), path);
+        await readAndLoadPdf(path);
       } catch (cause) {
         const detail = cause instanceof Error ? cause.message : "The file could not be read.";
         setError(`Could not open “${baseName(path)}”. ${detail}`);
@@ -1110,7 +1277,7 @@ export default function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, [loadPdf]);
+  }, [readAndLoadPdf]);
 
   const openPdf = useCallback(async () => {
     if (!isTauri()) {
@@ -1123,8 +1290,13 @@ export default function App() {
       filters: [{ name: "PDF documents", extensions: ["pdf"] }]
     });
     if (typeof path !== "string") return;
-    loadPdf(await readLocalPdf(path), baseName(path), path);
-  }, [loadPdf]);
+    try {
+      await readAndLoadPdf(path);
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : "The file could not be read.";
+      setError(`Could not open “${baseName(path)}”. ${detail}`);
+    }
+  }, [readAndLoadPdf]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -1135,7 +1307,14 @@ export default function App() {
         const path = event.payload.paths.find((item) =>
           item.toLowerCase().endsWith(".pdf")
         );
-        if (path) loadPdf(await readLocalPdf(path), baseName(path), path);
+        if (path) {
+          try {
+            await readAndLoadPdf(path);
+          } catch (cause) {
+            const detail = cause instanceof Error ? cause.message : "The file could not be read.";
+            setError(`Could not open “${baseName(path)}”. ${detail}`);
+          }
+        }
       })
       .then((dispose) => {
         unlisten = dispose;
@@ -1144,7 +1323,7 @@ export default function App() {
         // Browser-only Vite preview: native drag/drop events are unavailable.
       });
     return () => unlisten?.();
-  }, [loadPdf]);
+  }, [readAndLoadPdf]);
 
   useEffect(() => {
     const requestImage = (event: Event) => {
@@ -1158,10 +1337,10 @@ export default function App() {
   useEffect(() => () => void pdfDocument?.destroy(), [pdfDocument]);
 
   useEffect(() => {
-    if (!pages.length) return;
-    setSelectedPage((page) => Math.min(Math.max(1, page), pages.length));
-    setCurrentPage((page) => Math.min(Math.max(1, page), pages.length));
-  }, [pages.length]);
+    if (!pdfDocument) return;
+    setSelectedPage((page) => Math.min(Math.max(1, page), pdfDocument.numPages));
+    setCurrentPage((page) => Math.min(Math.max(1, page), pdfDocument.numPages));
+  }, [pdfDocument]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -1466,7 +1645,23 @@ export default function App() {
     }
   }, [saveForceAs, saveName, savePdf]);
 
+  const mergePdfBytes = useCallback(async (bytes: Uint8Array, name: string) => {
+    setBusy(true);
+    setLoadingStage(`Merging ${name}…`);
+    setLoadingProgress(0.12);
+    setError(null);
+    try {
+      await editor.merge(bytes);
+      setLoadingStage("Preparing the merged document…");
+      setLoadingProgress(0.35);
+    } catch (cause) {
+      setBusy(false);
+      setError(cause instanceof Error ? cause.message : "The PDF could not be merged.");
+    }
+  }, [editor]);
+
   const mergePdf = useCallback(async () => {
+    if (!documentPrepared) return;
     if (!isTauri()) {
       mergeFileInput.current?.click();
       return;
@@ -1476,16 +1671,24 @@ export default function App() {
       filters: [{ name: "PDF documents", extensions: ["pdf"] }]
     });
     if (typeof path === "string") {
-      await editor.merge(new Uint8Array(await readLocalPdf(path)));
+      setBusy(true);
+      setLoadingStage(`Reading ${baseName(path)}…`);
+      setLoadingProgress(0.04);
+      try {
+        await mergePdfBytes(new Uint8Array(await readLocalPdf(path)), baseName(path));
+      } catch (cause) {
+        setBusy(false);
+        setError(cause instanceof Error ? cause.message : "The PDF could not be read.");
+      }
     }
-  }, [editor]);
+  }, [documentPrepared, mergePdfBytes]);
 
   const splitPdf = useCallback(() => {
-    if (!pages.length) return;
+    if (!documentPrepared) return;
     setSplitRanges(String(selectedPage));
     setSplitError("");
     setActiveDialog("split");
-  }, [pages.length, selectedPage]);
+  }, [documentPrepared, selectedPage]);
 
   const confirmSplit = useCallback(async () => {
     const parsed = parsePageRanges(splitRanges, pages.length);
@@ -1541,12 +1744,22 @@ export default function App() {
   }, [downloadBytes, pendingSplitBytes, preferences.defaultSaveFolder, saveName]);
 
   const deleteSelectedPage = useCallback(() => {
-    if (!pdfDocument || pages.length <= 1) return;
-    const nextSelection = Math.min(selectedPage, pages.length - 1);
+    if (!pdfDocument || !documentPrepared || pdfDocument.numPages <= 1) return;
+    const nextSelection = Math.min(selectedPage, pdfDocument.numPages - 1);
     void editor.remove(selectedPage);
     setSelectedPage(nextSelection);
     setCurrentPage(nextSelection);
-  }, [editor, pages.length, pdfDocument, selectedPage]);
+  }, [documentPrepared, editor, pdfDocument, selectedPage]);
+
+  const duplicateSelectedPage = useCallback(() => {
+    if (!documentPrepared) return;
+    void editor.duplicate(selectedPage);
+  }, [documentPrepared, editor, selectedPage]);
+
+  const rotateSelectedPage = useCallback((amount: number) => {
+    if (!documentPrepared) return;
+    void editor.rotate(selectedPage, amount);
+  }, [documentPrepared, editor, selectedPage]);
 
   const toggleSearch = useCallback(() => {
     setSearchOpen((open) => !open);
@@ -1608,7 +1821,16 @@ export default function App() {
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
           if (!file) return;
-          void file.arrayBuffer().then((data) => loadPdf(data, file.name));
+          setBusy(true);
+          setLoadingStage(`Reading ${file.name}…`);
+          setLoadingProgress(0.02);
+          setError(null);
+          void file.arrayBuffer()
+            .then((data) => loadPdf(data, file.name))
+            .catch((cause) => {
+              setBusy(false);
+              setError(cause instanceof Error ? cause.message : "The file could not be read.");
+            });
           event.currentTarget.value = "";
         }}
       />
@@ -1619,7 +1841,17 @@ export default function App() {
         className="hidden"
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
-          if (file) void file.arrayBuffer().then((data) => editor.merge(new Uint8Array(data)));
+          if (file) {
+            setBusy(true);
+            setLoadingStage(`Reading ${file.name}…`);
+            setLoadingProgress(0.04);
+            void file.arrayBuffer()
+              .then((data) => mergePdfBytes(new Uint8Array(data), file.name))
+              .catch((cause) => {
+                setBusy(false);
+                setError(cause instanceof Error ? cause.message : "The PDF could not be read.");
+              });
+          }
           event.currentTarget.value = "";
         }}
       />
@@ -2039,19 +2271,14 @@ export default function App() {
         <div className="flex shrink-0 flex-col justify-start gap-2 border-r border-white/10 px-2 pb-1 pt-2">
           <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Edit</span>
           <div className="flex items-center">
-            <button className={iconButton} disabled={!pdfDocument} onClick={() => void mergePdf()}><FilePlus2 size={16} /> Merge</button>
-            <button className={iconButton} disabled={!pdfDocument} onClick={() => void splitPdf()}><Scissors size={16} /> Split</button>
-            <button className={iconButton} title={`Duplicate selected page ${selectedPage}`} disabled={!pdfDocument} onClick={() => void editor.duplicate(selectedPage)}><Copy size={16} /> Duplicate</button>
+            <button className={iconButton} disabled={!documentPrepared} onClick={() => void mergePdf()}><FilePlus2 size={16} /> Merge</button>
+            <button className={iconButton} disabled={!documentPrepared} onClick={() => void splitPdf()}><Scissors size={16} /> Split</button>
+            <button className={iconButton} title={`Duplicate selected page ${selectedPage}`} disabled={!documentPrepared} onClick={duplicateSelectedPage}><Copy size={16} /> Duplicate</button>
             <button
               className={iconButton + " text-red-300 hover:bg-red-400/10 hover:text-red-200"}
               title={`Delete selected page ${selectedPage}`}
-              disabled={!pdfDocument || pages.length <= 1}
-              onClick={() => {
-                const nextSelection = Math.min(selectedPage, pages.length - 1);
-                void editor.remove(selectedPage);
-                setSelectedPage(nextSelection);
-                setCurrentPage(nextSelection);
-              }}
+              disabled={!documentPrepared || (pdfDocument?.numPages ?? 0) <= 1}
+              onClick={deleteSelectedPage}
             ><Trash2 size={16} /> Delete</button>
           </div>
         </div>
@@ -2067,8 +2294,8 @@ export default function App() {
         <div className="flex shrink-0 flex-col justify-start gap-2 border-r border-white/10 px-2 pb-1 pt-2">
           <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-amber-400/80">Rotate · Page {selectedPage}</span>
           <div className="flex items-center">
-            <button className={iconButton + " text-amber-300 hover:bg-amber-400/10 hover:text-amber-200"} title={`Rotate selected page ${selectedPage} left`} disabled={!pdfDocument} onClick={() => void editor.rotate(selectedPage, -90)}><RotateCcw size={16} /> Left</button>
-            <button className={iconButton + " text-amber-300 hover:bg-amber-400/10 hover:text-amber-200"} title={`Rotate selected page ${selectedPage} right`} disabled={!pdfDocument} onClick={() => void editor.rotate(selectedPage, 90)}><RotateCw size={16} /> Right</button>
+            <button className={iconButton + " text-amber-300 hover:bg-amber-400/10 hover:text-amber-200"} title={`Rotate selected page ${selectedPage} left`} disabled={!documentPrepared} onClick={() => rotateSelectedPage(-90)}><RotateCcw size={16} /> Left</button>
+            <button className={iconButton + " text-amber-300 hover:bg-amber-400/10 hover:text-amber-200"} title={`Rotate selected page ${selectedPage} right`} disabled={!documentPrepared} onClick={() => rotateSelectedPage(90)}><RotateCw size={16} /> Right</button>
           </div>
         </div>
 
@@ -2185,20 +2412,20 @@ export default function App() {
           <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit</span>
           <div className="flex justify-center">
             <ToolbarDropdown label="Page Edit" tooltip="Open actions for the selected page" tooltipAlign="start" icon={<FilePlus2 size={16} />}>
-              <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={dropdownItem} disabled={!pdfDocument} onClick={() => void mergePdf()}><FilePlus2 size={15} /> Merge PDF</button>
-              <button data-tooltip="Export chosen page ranges as a new PDF" data-tooltip-align="start" className={dropdownItem} disabled={!pdfDocument} onClick={() => void splitPdf()}><Scissors size={15} /> Split or extract</button>
-              <button data-tooltip="Make a copy of the selected page" data-tooltip-align="start" className={dropdownItem} disabled={!pdfDocument} onClick={() => void editor.duplicate(selectedPage)}><Copy size={15} /> Duplicate selected page</button>
-              <button data-tooltip="Remove the selected page from the document" data-tooltip-align="start" className={dropdownItem + " text-red-300"} disabled={!pdfDocument || pages.length <= 1} onClick={deleteSelectedPage}><Trash2 size={15} /> Delete selected page</button>
+              <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void mergePdf()}><FilePlus2 size={15} /> Merge PDF</button>
+              <button data-tooltip="Export chosen page ranges as a new PDF" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void splitPdf()}><Scissors size={15} /> Split or extract</button>
+              <button data-tooltip="Make a copy of the selected page" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={duplicateSelectedPage}><Copy size={15} /> Duplicate selected page</button>
+              <button data-tooltip="Remove the selected page from the document" data-tooltip-align="start" className={dropdownItem + " text-red-300"} disabled={!documentPrepared || (pdfDocument?.numPages ?? 0) <= 1} onClick={deleteSelectedPage}><Trash2 size={15} /> Delete selected page</button>
             </ToolbarDropdown>
           </div>
         </div>
         <div className="hidden min-w-0 flex-[2.2_1_0%] flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1680px]:flex">
           <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit</span>
           <div className="flex justify-center">
-            <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={iconButton + " toolbar-tooltip"} disabled={!pdfDocument} onClick={() => void mergePdf()}><FilePlus2 size={16} /> Merge</button>
-            <button data-tooltip="Export chosen page ranges as a new PDF" className={iconButton + " toolbar-tooltip"} disabled={!pdfDocument} onClick={() => void splitPdf()}><Scissors size={16} /> Split</button>
-            <button data-tooltip="Make a copy of the selected page" className={iconButton + " toolbar-tooltip"} disabled={!pdfDocument} onClick={() => void editor.duplicate(selectedPage)}><Copy size={16} /> Duplicate</button>
-            <button data-tooltip="Remove the selected page from the document" className={iconButton + " toolbar-tooltip text-red-300"} disabled={!pdfDocument || pages.length <= 1} onClick={deleteSelectedPage}><Trash2 size={16} /> Delete</button>
+            <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void mergePdf()}><FilePlus2 size={16} /> Merge</button>
+            <button data-tooltip="Export chosen page ranges as a new PDF" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void splitPdf()}><Scissors size={16} /> Split</button>
+            <button data-tooltip="Make a copy of the selected page" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={duplicateSelectedPage}><Copy size={16} /> Duplicate</button>
+            <button data-tooltip="Remove the selected page from the document" className={iconButton + " toolbar-tooltip text-red-300"} disabled={!documentPrepared || (pdfDocument?.numPages ?? 0) <= 1} onClick={deleteSelectedPage}><Trash2 size={16} /> Delete</button>
           </div>
         </div>
 
@@ -2213,8 +2440,8 @@ export default function App() {
         <div className="flex min-w-0 flex-[1.1_1_0%] flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2">
           <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-amber-400/80">Rotate</span>
           <div className="flex justify-center">
-            <button className={compactToolButton + " text-amber-300"} data-tooltip="Rotate the selected page 90 degrees counterclockwise" disabled={!pdfDocument} onClick={() => void editor.rotate(selectedPage, -90)}><RotateCcw size={16} /><span className="hidden min-[1200px]:inline">Left</span></button>
-            <button className={compactToolButton + " text-amber-300"} data-tooltip="Rotate the selected page 90 degrees clockwise" disabled={!pdfDocument} onClick={() => void editor.rotate(selectedPage, 90)}><RotateCw size={16} /><span className="hidden min-[1200px]:inline">Right</span></button>
+            <button className={compactToolButton + " text-amber-300"} data-tooltip="Rotate the selected page 90 degrees counterclockwise" disabled={!documentPrepared} onClick={() => rotateSelectedPage(-90)}><RotateCcw size={16} /><span className="hidden min-[1200px]:inline">Left</span></button>
+            <button className={compactToolButton + " text-amber-300"} data-tooltip="Rotate the selected page 90 degrees clockwise" disabled={!documentPrepared} onClick={() => rotateSelectedPage(90)}><RotateCw size={16} /><span className="hidden min-[1200px]:inline">Right</span></button>
           </div>
         </div>
 
@@ -2364,7 +2591,12 @@ export default function App() {
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {sidebarTab === "pages" ? (
                 <div className="space-y-2">
-                  {pages.map((page) => <Thumbnail key={page.pageNumber} page={page} selected={selectedPage === page.pageNumber} onClick={() => jumpToPage(page.pageNumber)} onMove={(from, to) => { void editor.reorder(from, to); setSelectedPage(to); }} />)}
+                  {pages.map((page) => <Thumbnail key={page.pageNumber} page={page} selected={selectedPage === page.pageNumber} reorderEnabled={documentPrepared} onClick={() => jumpToPage(page.pageNumber)} onMove={(from, to) => {
+                    if (!documentPrepared) return;
+                    void editor.reorder(from, to);
+                    setSelectedPage(to);
+                    setCurrentPage(to);
+                  }} />)}
                 </div>
               ) : (
                 <p className="p-3 text-center text-xs leading-5 text-zinc-500">Bookmarks will appear here when the document contains an outline.</p>
@@ -2405,6 +2637,40 @@ export default function App() {
               ))}
             </div>
           )}
+          {busy && (
+            <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#252930]/85 backdrop-blur-sm">
+              <div
+                className="w-[min(24rem,calc(100%_-_3rem))] rounded-2xl border border-white/10 bg-panel px-6 py-5 shadow-2xl"
+                role="status"
+                aria-label="Document loading status"
+                aria-live="polite"
+              >
+                <div className="flex items-center gap-3">
+                  <LoaderCircle size={22} className="shrink-0 animate-spin text-accent" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-white">Opening document</p>
+                    <p className="mt-1 truncate text-xs text-zinc-400">{loadingStage}</p>
+                  </div>
+                </div>
+                <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-accent transition-[width] duration-200"
+                    style={{ width: `${Math.max(4, Math.round(loadingProgress * 100))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          {!busy && pdfDocument && preparedPageCount < pdfDocument.numPages && (
+            <div
+              className="pointer-events-none absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-panel/95 px-3 py-2 text-xs text-zinc-300 shadow-lg backdrop-blur"
+              role="status"
+              aria-label="Page preparation status"
+            >
+              <LoaderCircle size={14} className="animate-spin text-accent" />
+              Preparing pages {preparedPageCount} of {pdfDocument.numPages}
+            </div>
+          )}
           {searchOpen && searchResults.length > 0 && (
             <div className="pointer-events-none absolute bottom-2 right-1 top-2 z-20 w-2 rounded-full bg-black/15">
               {searchResults.map((match, index) => {
@@ -2426,7 +2692,7 @@ export default function App() {
           {pdfDocument && (
             <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center rounded-lg border border-white/10 bg-panel/95 px-2 py-1 shadow-xl backdrop-blur">
               <button className={iconButton + " pointer-events-auto"} disabled={currentPage <= 1} onClick={() => jumpToPage(currentPage - 1)}><ChevronLeft size={16} /></button>
-              <span className="min-w-20 text-center text-xs text-zinc-300">{currentPage} / {pages.length}</span>
+              <span className="min-w-20 text-center text-xs text-zinc-300">{currentPage} / {pdfDocument.numPages}</span>
               <button className={iconButton + " pointer-events-auto"} disabled={currentPage >= pages.length} onClick={() => jumpToPage(currentPage + 1)}><ChevronRight size={16} /></button>
             </div>
           )}
