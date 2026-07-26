@@ -179,7 +179,7 @@ packs with no network fallback.
 - Secure redaction rasterizes pages, which removes searchable text from the
   exported document.
 - Interactive form creation and editing are not yet implemented.
-- OCR is not yet available.
+- OCR runs locally in the background for pages without usable embedded text.
 - Release builds are not currently code-signed or notarized.
 
 ## Contributing
@@ -187,6 +187,9 @@ packs with no network fallback.
 Contributions are welcome. Please open an issue before beginning a large feature
 or architectural change. All contributed functionality must preserve the
 offline-first privacy model and use license-compatible dependencies.
+
+Participation in the project is governed by the
+[Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
