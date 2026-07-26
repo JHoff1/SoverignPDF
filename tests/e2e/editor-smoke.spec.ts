@@ -57,6 +57,20 @@ test("fresh preferences use privacy-conscious save defaults", async ({ page }) =
   await expect(page.getByText("Network access is disabled.")).toBeVisible();
 });
 
+test("shows a visible error when a selected PDF cannot be parsed", async ({ page }) => {
+  await page.goto("/");
+  const pdfInputs = page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  );
+  await pdfInputs.nth(0).setInputFiles({
+    name: "damaged.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("This is not a PDF.")
+  });
+
+  await expect(page.getByRole("alert")).toContainText("Unable to open PDF");
+});
+
 test("loads, searches, rotates, annotates, and restores history", async ({
   page
 }) => {

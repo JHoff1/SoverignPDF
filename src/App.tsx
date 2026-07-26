@@ -8,6 +8,7 @@ import {
   type ReactNode
 } from "react";
 import {
+  AlertTriangle,
   BookOpen,
   CheckCircle2,
   Copy,
@@ -46,6 +47,7 @@ import {
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, writeFile } from "@tauri-apps/plugin-fs";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -1044,6 +1046,12 @@ export default function App() {
     editor.load(new Uint8Array(data));
     setFileName(name);
     setSourcePath(path);
+    setError(null);
+    if (isTauri()) {
+      const windowLabel = getCurrentWebview().label;
+      void invoke("mark_window_document_open", { windowLabel });
+      void getCurrentWindow().setTitle(`${name} — SovereignPDF`);
+    }
     if (path) {
       setPreferences((current) => ({
         ...current,
@@ -1053,38 +1061,55 @@ export default function App() {
     setCurrentPage(1);
     setSelectedPage(1);
     setViewMode("fit-page");
-  }, [editor]);
+  }, [editor.load]);
 
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
     const opened = new Set<string>();
     const loadExternalPdf = async (candidate: string) => {
       const path = fileUrlToPath(candidate);
       if (!path.toLowerCase().endsWith(".pdf") || opened.has(path)) return;
       opened.add(path);
-      loadPdf(await readLocalPdf(path), baseName(path), path);
+      try {
+        loadPdf(await readLocalPdf(path), baseName(path), path);
+      } catch (cause) {
+        const detail = cause instanceof Error ? cause.message : "The file could not be read.";
+        setError(`Could not open “${baseName(path)}”. ${detail}`);
+      }
     };
 
-    void listen<string[]>("opened-pdf-urls", (event) => {
-      const path = event.payload.find((value) => value.toLowerCase().includes(".pdf"));
-      if (path) void loadExternalPdf(path);
-    }).then((dispose) => {
+    void (async () => {
+      const disposers = await Promise.all([
+        listen<string[]>("opened-pdf-paths", (event) => {
+          const path = event.payload.find((value) => value.toLowerCase().includes(".pdf"));
+          if (path) void loadExternalPdf(path);
+        }),
+        listen<string>("open-pdf-error", (event) => {
+          setError(`SovereignPDF could not create a document window. ${event.payload}`);
+        })
+      ]);
+      const dispose = () => disposers.forEach((unlistenEvent) => unlistenEvent());
+      if (cancelled) {
+        dispose();
+        return;
+      }
       unlisten = dispose;
+
+      const windowLabel = getCurrentWebview().label;
+      const openedPaths = await invoke<string[]>("opened_pdf_paths", { windowLabel });
+      const openedPath = openedPaths.find((value) => value.toLowerCase().includes(".pdf"));
+      if (openedPath) await loadExternalPdf(openedPath);
+    })().catch((cause) => {
+      const detail = cause instanceof Error ? cause.message : "The request could not be completed.";
+      setError(`SovereignPDF could not process the file-open request. ${detail}`);
     });
 
-    void Promise.all([
-      invoke<string | null>("startup_pdf_path"),
-      invoke<string[]>("opened_urls")
-    ]).then(([startupPath, openedUrls]) => {
-      if (startupPath) return loadExternalPdf(startupPath);
-      const openedUrl = openedUrls.find((value) => value.toLowerCase().includes(".pdf"));
-      if (openedUrl) return loadExternalPdf(openedUrl);
-    }).catch(() => {
-      // Normal launches do not include a document path.
-    });
-
-    return () => unlisten?.();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, [loadPdf]);
 
   const openPdf = useCallback(async () => {
@@ -1945,6 +1970,26 @@ export default function App() {
             aria-label="Dismiss success message"
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-emerald-200/70 hover:bg-white/10 hover:text-white"
             onClick={() => setSuccessMessage("")}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+      {error && (
+        <div
+          role="alert"
+          className="fixed bottom-5 right-5 z-[220] flex w-[min(460px,calc(100vw-40px))] items-start gap-3 rounded-xl border border-red-400/40 bg-[#2a1215] p-4 text-red-50 shadow-2xl"
+        >
+          <AlertTriangle size={20} className="mt-0.5 shrink-0 text-red-400" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold">Unable to open PDF</p>
+            <p className="mt-1 break-words text-xs leading-5 text-red-100/80">{error}</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Dismiss error message"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-red-200/70 hover:bg-white/10 hover:text-white"
+            onClick={() => setError(null)}
           >
             <X size={14} />
           </button>

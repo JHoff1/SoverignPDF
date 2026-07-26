@@ -13,8 +13,48 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare-release:
+    name: Prepare draft release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or find draft release
+        uses: actions/github-script@v9
+        with:
+          retries: 3
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const tag = context.ref.replace("refs/tags/", "");
+
+            try {
+              const existing = await github.rest.repos.getReleaseByTag({
+                owner,
+                repo,
+                tag,
+              });
+              core.info(`Using existing release ${existing.data.id} for ${tag}.`);
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+              const created = await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: tag,
+                name: `SovereignPDF ${tag}`,
+                body:
+                  "Download the installer for your operating system from the " +
+                  "assets below.\n\nSovereignPDF processes documents entirely " +
+                  "on your device.",
+                draft: true,
+                prerelease: false,
+              });
+              core.info(`Created draft release ${created.data.id} for ${tag}.`);
+            }
+
   build:
     name: Build ${{ matrix.name }}
+    needs: prepare-release
     strategy:
       fail-fast: false
       matrix:
@@ -78,6 +118,44 @@ jobs:
             Download the installer for your operating system from the assets below.
 
             SovereignPDF processes documents entirely on your device.
-          releaseDraft: false
+          releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish-release:
+    name: Publish verified release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify assets and publish
+        uses: actions/github-script@v9
+        with:
+          retries: 3
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const tag = context.ref.replace("refs/tags/", "");
+            const response = await github.rest.repos.getReleaseByTag({
+              owner,
+              repo,
+              tag,
+            });
+            const release = response.data;
+
+            if (release.assets.length < 5) {
+              core.setFailed(
+                `Expected at least 5 installer assets for ${tag}, ` +
+                  `but found ${release.assets.length}.`,
+              );
+              return;
+            }
+
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: release.id,
+              draft: false,
+              prerelease: false,
+              make_latest: "true",
+            });
+            core.info(`Published ${tag} with ${release.assets.length} assets.`);

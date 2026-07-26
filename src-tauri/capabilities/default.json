@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Local document access for the main SovereignPDF window",
-  "windows": ["main"],
+  "description": "Local document access for SovereignPDF document windows",
+  "windows": ["main", "document-*"],
   "permissions": [
     "core:default",
     "dialog:allow-open",
