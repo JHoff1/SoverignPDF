@@ -1340,14 +1340,20 @@ export default function App() {
       return () => window.removeEventListener("beforeunload", handleBeforeUnload);
     }
     let dispose: (() => void) | undefined;
+    let cancelled = false;
     void getCurrentWindow().onCloseRequested((event) => {
       if (!dirtyRef.current || allowWindowClose.current) return;
       event.preventDefault();
       setActiveDialog("unsaved-close");
     }).then((unlisten) => {
+      if (cancelled) {
+        unlisten();
+        return;
+      }
       dispose = unlisten;
     });
     return () => {
+      cancelled = true;
       window.removeEventListener("beforeunload", handleBeforeUnload);
       dispose?.();
     };
