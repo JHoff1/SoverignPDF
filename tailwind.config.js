@@ -5,8 +5,10 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#16181d",
-        panel: "#202329",
+        ink: "var(--color-ink)",
+        panel: "var(--color-panel)",
+        toolbar: "var(--color-toolbar)",
+        workspace: "var(--color-workspace)",
         accent: "#df5b43"
       }
     }

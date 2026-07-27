@@ -127,6 +127,27 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: Download installer assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets
+
+      - name: Generate SHA-256 checksums
+        run: |
+          cd release-assets
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\0' \
+            | sort -z \
+            | xargs -0 sha256sum > SHA256SUMS.txt
+
+      - name: Attach checksum manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >
+          gh release upload "$RELEASE_TAG" release-assets/SHA256SUMS.txt
+          --repo "$GITHUB_REPOSITORY" --clobber
+
       - name: Verify assets and publish
         uses: actions/github-script@v9
         with:
@@ -148,10 +169,22 @@ jobs:
               return;
             }
 
-            if (release.assets.length < 5) {
+            const expectedAssets = [
+              ".AppImage",
+              ".deb",
+              ".dmg",
+              ".exe",
+              ".msi",
+              "SHA256SUMS.txt",
+            ];
+            const missingAssets = expectedAssets.filter(
+              (suffix) => !release.assets.some(
+                (asset) => asset.name.endsWith(suffix),
+              ),
+            );
+            if (missingAssets.length > 0) {
               core.setFailed(
-                `Expected at least 5 installer assets for ${tag}, ` +
-                  `but found ${release.assets.length}.`,
+                `Release ${tag} is missing: ${missingAssets.join(", ")}.`,
               );
               return;
             }

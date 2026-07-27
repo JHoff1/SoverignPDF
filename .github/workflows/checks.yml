@@ -84,3 +84,6 @@ jobs:
 
       - name: Lint and check native backend
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked -- -D warnings
+
+      - name: Run native regression tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked

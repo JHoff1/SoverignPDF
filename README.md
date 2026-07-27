@@ -34,6 +34,9 @@ advertising, cloud processing, account system, or paid features.
 - Password prompts with local retry support for encrypted PDFs; passwords stay
   in memory and encrypted files open in protected viewing mode
 - Virtualized page mounting for large documents
+- Skeleton placeholders and cached page imagery while sharper zoom levels render
+- A persistent status bar for page number, dimensions, file size, zoom,
+  background work, and saved state
 
 ### Page editing
 
@@ -56,6 +59,9 @@ advertising, cloud processing, account system, or paid features.
 ### Document tools
 
 - Save and Save As
+- Native system printing with page ranges, portrait or landscape layout, and
+  `Ctrl`/`Command`+`P`
+- Crash-safe saving through same-folder temporary files and atomic replacement
 - Save / Discard / Cancel protection when closing with unsaved changes
 - Local crash-recovery snapshots that are removed after saving or discarding
 - Interactive form-field flattening
@@ -64,9 +70,35 @@ advertising, cloud processing, account system, or paid features.
 
 ## Interface
 
-The application uses a compact desktop ribbon with separate Edit, History,
-Rotate, Markup, Document, and View sections. Open a PDF to activate the editing
-tools, then select pages from the thumbnail sidebar.
+The application uses a responsive desktop ribbon with separate Page Edit,
+History, Rotate, Markup, Document, and View sections. Open a PDF to activate the
+editing tools, then select pages from the resizable thumbnail sidebar.
+Selecting an annotation opens a resizable properties panel. Dark, light, and
+operating-system themes are supported, and workspace dimensions, zoom, and fit
+mode are remembered locally. The empty workspace provides drag-and-drop,
+Open, and recent-document entry points.
+
+## Keyboard shortcuts
+
+| Action | Windows and Linux | macOS |
+| --- | --- | --- |
+| Open | `Ctrl+O` | `Command+O` |
+| Save | `Ctrl+S` | `Command+S` |
+| Save As | `Ctrl+Shift+S` | `Command+Shift+S` |
+| Print | `Ctrl+P` | `Command+P` |
+| Find | `Ctrl+F` | `Command+F` |
+| Undo | `Ctrl+Z` | `Command+Z` |
+| Redo | `Ctrl+Shift+Z` | `Command+Shift+Z` |
+| Delete selected annotation or page | `Delete` | `Delete` |
+| Move selected annotation | Arrow keys | Arrow keys |
+| Move selected annotation farther | `Shift` + arrow keys | `Shift` + arrow keys |
+| Fit entire page | `Ctrl+0` | `Command+0` |
+| Actual size | `Ctrl+1` | `Command+1` |
+| Cancel or clear selection | `Escape` | `Escape` |
+| Search shortcuts | `Ctrl+/` | `Command+/` |
+
+The searchable shortcut reference is also available from the application
+header.
 
 ## Install
 
@@ -139,8 +171,12 @@ The workflow creates a draft GitHub Release containing:
 - Windows NSIS and MSI installers
 - A macOS DMG
 - Linux DEB and AppImage packages
+- A `SHA256SUMS.txt` manifest covering every installer
 
-Review and publish the draft release from the repository's **Releases** page.
+The workflow verifies all expected assets and publishes the release only after
+every platform build and checksum step succeeds. Verify a downloaded installer
+with `sha256sum -c SHA256SUMS.txt` on Linux, `shasum -a 256` on macOS, or
+`Get-FileHash -Algorithm SHA256` on Windows.
 
 ## Architecture
 
@@ -171,11 +207,11 @@ separate from the installed application's document-processing behavior.
 
 ## OCR policy
 
-OCR is planned as an optional local component. It is not currently bundled
-because language models would substantially increase the base installer size,
-while downloading models at runtime would conflict with the strict offline
-guarantee. A future OCR module will use explicitly installed local language
-packs with no network fallback.
+OCR is bundled as a completely local component. After text extraction finishes,
+pages without usable embedded text are recognized asynchronously in the
+background. Search uses the recognized text as it becomes available. The OCR
+engine, English language data, and SIMD-compatible WebAssembly assets ship with
+the application and never fall back to a network download.
 
 ## Current limitations
 
@@ -183,7 +219,8 @@ packs with no network fallback.
 - Secure redaction rasterizes pages, which removes searchable text from the
   exported document.
 - Interactive form creation and editing are not yet implemented.
-- OCR runs locally in the background for pages without usable embedded text.
+- Bundled OCR currently recognizes English text; additional offline language
+  packs are not yet included.
 - Release builds are not currently code-signed or notarized.
 
 ## Contributing

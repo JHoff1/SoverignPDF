@@ -82,7 +82,7 @@ test("shows a visible error when a selected PDF cannot be parsed", async ({ page
     buffer: Buffer.from("This is not a PDF.")
   });
 
-  await expect(page.getByRole("alert")).toContainText("Unable to open PDF");
+  await expect(page.getByRole("alert")).toContainText("Unable to complete that action");
 });
 
 test("shows document and page loading feedback instead of a blank preview", async ({
@@ -206,7 +206,7 @@ test("loads, searches, rotates, annotates, and restores history", async ({
 
   await page.getByRole("button", { name: "Select" }).click();
   await page.locator('[data-annotation-kind="text"]').click();
-  const annotationToolbar = page.getByRole("toolbar", {
+  const annotationToolbar = page.getByRole("region", {
     name: "Edit selected text annotation"
   });
   await expect(annotationToolbar).toBeVisible();
@@ -223,6 +223,48 @@ test("loads, searches, rotates, annotates, and restores history", async ({
   await expect(annotationToolbar).toBeHidden();
 });
 
+test("shows document status and provides searchable keyboard shortcuts", async ({
+  page
+}) => {
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "professional-status.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+
+  const statusBar = page.getByRole("contentinfo", { name: "Document status" });
+  await expect(statusBar).toContainText("Page 1 of 3");
+  await expect(statusBar).toContainText("612 × 792 pt");
+  await expect(statusBar).toContainText("Saved");
+
+  await page.keyboard.press("Control+/");
+  const shortcutDialog = page.getByRole("dialog", {
+    name: "Keyboard shortcuts"
+  });
+  await expect(shortcutDialog).toBeVisible();
+  await shortcutDialog
+    .getByRole("textbox", { name: "Search keyboard shortcuts" })
+    .fill("actual size");
+  await expect(shortcutDialog).toContainText("Ctrl/⌘ 1");
+  await shortcutDialog.getByRole("button", { name: "Done" }).click();
+
+  await page.keyboard.press("Control+1");
+  await expect(page.getByLabel("Zoom percentage")).toHaveValue("100");
+});
+
+test("persists the selected application theme locally", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Preferences" }).click();
+  await page.getByRole("button", { name: "Light" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+});
+
 test("toolbar does not overflow at the minimum window size", async ({
   page
 }) => {
@@ -233,6 +275,30 @@ test("toolbar does not overflow at the minimum window size", async ({
     scrollWidth: document.body.scrollWidth
   }));
   expect(dimensions.scrollWidth).toBe(dimensions.clientWidth);
+});
+
+test("opens local print options from Ctrl+P and validates page ranges", async ({
+  page
+}) => {
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "print.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+  await expect(page.getByText("3 pages", { exact: true })).toBeVisible();
+
+  await page.keyboard.press("Control+P");
+  const dialog = page.getByRole("dialog", { name: "Print PDF" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Pages or ranges")).toHaveValue("1-3");
+  await dialog.getByLabel(/landscape/i).check();
+  await expect(dialog.getByLabel(/landscape/i)).toBeChecked();
+  await dialog.getByLabel("Pages or ranges").fill("4");
+  await dialog.getByRole("button", { name: "Open Print Dialog" }).click();
+  await expect(dialog).toContainText("Pages must be between 1 and 3");
 });
 
 test("keeps distant pages virtualized in a large document", async ({ page }) => {
