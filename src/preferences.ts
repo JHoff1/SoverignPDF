@@ -18,6 +18,8 @@ export type AppPreferences = {
   zoom: number;
   sidebarWidth: number;
   propertiesWidth: number;
+  restoreSession: boolean;
+  showExportSummary: boolean;
 };
 
 export const PREFERENCES_KEY = "sovereignpdf.preferences.v1";
@@ -41,7 +43,9 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   viewMode: "fit-page",
   zoom: 1,
   sidebarWidth: 208,
-  propertiesWidth: 272
+  propertiesWidth: 272,
+  restoreSession: true,
+  showExportSummary: true
 };
 
 export function loadPreferences(): AppPreferences {

@@ -32,6 +32,7 @@ type Action = () => void | Promise<void>;
 
 export function EditorToolbar({
   pageCount,
+  selectionCount,
   documentPrepared,
   hasDocument,
   passwordProtected,
@@ -57,6 +58,7 @@ export function EditorToolbar({
   onViewModeChange
 }: {
   pageCount: number;
+  selectionCount: number;
   documentPrepared: boolean;
   hasDocument: boolean;
   passwordProtected: boolean;
@@ -84,6 +86,9 @@ export function EditorToolbar({
   const selectedToolClass = (tool: Tool) =>
     activeTool === tool ? " bg-accent/20 text-orange-200" : "";
   const markupDisabled = !hasDocument || passwordProtected;
+  const selectedPagesLabel = selectionCount === 1
+    ? "selected page"
+    : `${selectionCount} selected pages`;
 
   return (
     <div className="editor-toolbar relative z-30 flex h-20 w-full shrink-0 items-stretch overflow-visible border-b border-white/10 bg-toolbar px-1">
@@ -92,9 +97,9 @@ export function EditorToolbar({
         <div className="flex justify-center">
           <ToolbarDropdown label="Page Edit" tooltip="Open actions for the selected page" tooltipAlign="start" icon={<FilePlus2 size={16} />}>
             <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onMerge()}><FilePlus2 size={15} /> Merge PDF</button>
-            <button data-tooltip="Export chosen page ranges as a new PDF" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onSplit()}><Scissors size={15} /> Split or extract</button>
-            <button data-tooltip="Make a copy of the selected page" data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onDuplicate()}><Copy size={15} /> Duplicate selected page</button>
-            <button data-tooltip="Remove the selected page from the document" data-tooltip-align="start" className={dropdownItem + " text-red-300"} disabled={!documentPrepared || pageCount <= 1} onClick={() => void onDelete()}><Trash2 size={15} /> Delete selected page</button>
+            <button data-tooltip={`Export ${selectedPagesLabel} as a new PDF`} data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onSplit()}><Scissors size={15} /> Split or extract</button>
+            <button data-tooltip={`Make a copy of ${selectedPagesLabel}`} data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onDuplicate()}><Copy size={15} /> Duplicate {selectionCount === 1 ? "page" : "pages"}</button>
+            <button data-tooltip={`Remove ${selectedPagesLabel} from the document`} data-tooltip-align="start" className={dropdownItem + " text-red-300"} disabled={!documentPrepared || pageCount <= selectionCount} onClick={() => void onDelete()}><Trash2 size={15} /> Delete {selectionCount === 1 ? "page" : "pages"}</button>
           </ToolbarDropdown>
         </div>
       </div>
@@ -102,9 +107,9 @@ export function EditorToolbar({
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit</span>
         <div className="flex justify-center">
           <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onMerge()}><FilePlus2 size={16} /> Merge</button>
-          <button data-tooltip="Export chosen page ranges as a new PDF" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onSplit()}><Scissors size={16} /> Split</button>
-          <button data-tooltip="Make a copy of the selected page" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onDuplicate()}><Copy size={16} /> Duplicate</button>
-          <button data-tooltip="Remove the selected page from the document" className={iconButton + " toolbar-tooltip text-red-300"} disabled={!documentPrepared || pageCount <= 1} onClick={() => void onDelete()}><Trash2 size={16} /> Delete</button>
+          <button data-tooltip={`Export ${selectedPagesLabel} as a new PDF`} className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onSplit()}><Scissors size={16} /> Split</button>
+          <button data-tooltip={`Make a copy of ${selectedPagesLabel}`} className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onDuplicate()}><Copy size={16} /> Duplicate</button>
+          <button data-tooltip={`Remove ${selectedPagesLabel} from the document`} className={iconButton + " toolbar-tooltip text-red-300"} disabled={!documentPrepared || pageCount <= selectionCount} onClick={() => void onDelete()}><Trash2 size={16} /> Delete</button>
         </div>
       </div>
 
@@ -119,8 +124,8 @@ export function EditorToolbar({
       <div className="flex min-w-0 flex-[1.1_1_0%] flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-amber-400/80">Rotate</span>
         <div className="flex justify-center">
-          <button className={compactToolButton + " text-amber-300"} data-tooltip="Rotate the selected page 90 degrees counterclockwise" disabled={!documentPrepared} onClick={() => onRotate(-90)}><RotateCcw size={16} /><span className="hidden min-[1200px]:inline">Left</span></button>
-          <button className={compactToolButton + " text-amber-300"} data-tooltip="Rotate the selected page 90 degrees clockwise" disabled={!documentPrepared} onClick={() => onRotate(90)}><RotateCw size={16} /><span className="hidden min-[1200px]:inline">Right</span></button>
+          <button className={compactToolButton + " text-amber-300"} data-tooltip={`Rotate ${selectedPagesLabel} 90 degrees counterclockwise`} disabled={!documentPrepared} onClick={() => onRotate(-90)}><RotateCcw size={16} /><span className="hidden min-[1200px]:inline">Left</span></button>
+          <button className={compactToolButton + " text-amber-300"} data-tooltip={`Rotate ${selectedPagesLabel} 90 degrees clockwise`} disabled={!documentPrepared} onClick={() => onRotate(90)}><RotateCw size={16} /><span className="hidden min-[1200px]:inline">Right</span></button>
         </div>
       </div>
 

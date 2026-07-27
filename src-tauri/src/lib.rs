@@ -281,6 +281,7 @@ pub fn run() {
         .manage(OpenedPdfs(Mutex::new(OpenedPdfState::default())))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let cwd = std::env::current_dir().unwrap_or_default();
             let args = std::env::args_os()

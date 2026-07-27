@@ -3,37 +3,50 @@ import { Search } from "lucide-react";
 import { AppDialog } from "./AppDialog";
 
 const SHORTCUTS = [
-  ["File", "Open PDF", "Ctrl/⌘ O"],
-  ["File", "Save", "Ctrl/⌘ S"],
-  ["File", "Save As", "Ctrl/⌘ Shift S"],
-  ["File", "Print", "Ctrl/⌘ P"],
-  ["Navigation", "Find in document", "Ctrl/⌘ F"],
-  ["History", "Undo", "Ctrl/⌘ Z"],
-  ["History", "Redo", "Ctrl/⌘ Shift Z"],
-  ["Editing", "Delete selected annotation or page", "Delete"],
-  ["Editing", "Move selected annotation", "Arrow keys"],
-  ["Editing", "Move selected annotation farther", "Shift + Arrow keys"],
-  ["View", "Fit entire page", "Ctrl/⌘ 0"],
-  ["View", "Actual size (100%)", "Ctrl/⌘ 1"],
-  ["View", "Zoom", "Ctrl/⌘ + scroll"],
-  ["General", "Cancel tool, menu, dialog, or selection", "Escape"],
-  ["General", "Show keyboard shortcuts", "Ctrl/⌘ /"]
+  ["File", "Open PDF", ["O"]],
+  ["File", "Save", ["S"]],
+  ["File", "Save As", ["Shift", "S"]],
+  ["File", "Print", ["P"]],
+  ["Navigation", "Find in document", ["F"]],
+  ["History", "Undo", ["Z"]],
+  ["History", "Redo", ["Shift", "Z"]],
+  ["Editing", "Delete selected annotation or page", ["Delete"], false],
+  ["Editing", "Move selected annotation", ["Arrow keys"], false],
+  ["Editing", "Move selected annotation farther", ["Shift", "Arrow keys"], false],
+  ["View", "Fit entire page", ["0"]],
+  ["View", "Actual size (100%)", ["1"]],
+  ["View", "Zoom", ["Scroll"], true],
+  ["General", "Cancel tool, menu, dialog, or selection", ["Escape"], false],
+  ["General", "Show keyboard shortcuts", ["/"]]
 ] as const;
 
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(
+    `${navigator.platform} ${navigator.userAgent}`
+  );
+  const commandKey = isMac ? "⌘" : "Ctrl";
+  const platformName = isMac ? "macOS" : "Windows and Linux";
+  const formattedShortcuts = useMemo(() => SHORTCUTS.map(
+    ([group, command, keys, usesCommand = true]) => {
+      const formattedKeys = usesCommand
+        ? [commandKey, ...keys].join("+")
+        : keys.join("+");
+      return [group, command, formattedKeys] as const;
+    }
+  ), [commandKey]);
   const visibleShortcuts = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return SHORTCUTS;
-    return SHORTCUTS.filter((shortcut) =>
+    if (!needle) return formattedShortcuts;
+    return formattedShortcuts.filter((shortcut) =>
       shortcut.some((value) => value.toLocaleLowerCase().includes(needle))
     );
-  }, [query]);
+  }, [formattedShortcuts, query]);
 
   return (
     <AppDialog
       title="Keyboard shortcuts"
-      description="Search the commands available throughout SovereignPDF."
+      description={`Showing shortcuts for ${platformName}. Search the commands available throughout SovereignPDF.`}
       confirmLabel="Done"
       onCancel={onClose}
       onConfirm={onClose}

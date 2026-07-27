@@ -21,6 +21,7 @@ function formatBytes(bytes: number) {
 export function StatusBar({
   currentPage,
   pageCount,
+  selectedPageCount,
   width,
   height,
   fileSize,
@@ -30,6 +31,7 @@ export function StatusBar({
 }: {
   currentPage: number;
   pageCount: number;
+  selectedPageCount: number;
   width: number | null;
   height: number | null;
   fileSize: number;
@@ -48,7 +50,11 @@ export function StatusBar({
     >
       <span className="flex items-center gap-1.5 font-medium text-zinc-300">
         <FileText size={12} />
-        {pageCount ? `Page ${currentPage} of ${pageCount}` : "No document"}
+        {selectedPageCount > 1
+          ? `${selectedPageCount} pages selected`
+          : pageCount
+            ? `Page ${currentPage} of ${pageCount}`
+            : "No document"}
       </span>
       <span className="hidden h-3 w-px bg-white/10 sm:block" aria-hidden="true" />
       <span className="hidden items-center gap-1.5 sm:flex">
@@ -60,7 +66,9 @@ export function StatusBar({
       <span className="ml-auto flex min-w-0 items-center gap-1.5">
         {activity ? (
           <>
-            {activity.toLowerCase().includes("ocr") ? (
+            {activity.toLowerCase().includes("recovery") ? (
+              <CheckCircle2 size={12} className="shrink-0 text-emerald-400" />
+            ) : activity.toLowerCase().includes("ocr") ? (
               <ScanText size={12} className="shrink-0 text-emerald-400" />
             ) : (
               <LoaderCircle size={12} className="shrink-0 animate-spin text-orange-400" />

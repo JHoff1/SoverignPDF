@@ -1,10 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent
+} from "react";
 import { LoaderCircle } from "lucide-react";
 import type { PDFPageProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 export function PageThumbnail({
   page,
   selected,
+  selectedPages,
   reorderEnabled,
   onClick,
   onMove
@@ -12,8 +19,9 @@ export function PageThumbnail({
   page: PDFPageProxy;
   selected: boolean;
   reorderEnabled: boolean;
-  onClick: () => void;
-  onMove: (from: number, to: number) => void;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+  onMove: (from: number[], to: number) => void;
+  selectedPages?: number[];
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [renderActive, setRenderActive] = useState(false);
@@ -56,13 +64,22 @@ export function PageThumbnail({
       onClick={onClick}
       aria-pressed={selected}
       draggable={reorderEnabled}
-      onDragStart={(event) => event.dataTransfer.setData("text/page", String(page.pageNumber))}
+      onDragStart={(event) => {
+        const pages = selectedPages?.includes(page.pageNumber)
+          ? selectedPages
+          : [page.pageNumber];
+        event.dataTransfer.setData("text/pages", JSON.stringify(pages));
+      }}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
         event.preventDefault();
         if (!reorderEnabled) return;
-        const from = Number(event.dataTransfer.getData("text/page"));
-        if (from) onMove(from, page.pageNumber);
+        try {
+          const from = JSON.parse(event.dataTransfer.getData("text/pages")) as number[];
+          if (from.length) onMove(from, page.pageNumber);
+        } catch {
+          // Ignore malformed drag data from outside the thumbnail panel.
+        }
       }}
       className={`group w-full rounded-lg border p-2 transition ${
         selected

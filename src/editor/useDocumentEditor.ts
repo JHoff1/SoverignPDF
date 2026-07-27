@@ -247,12 +247,42 @@ export function useDocumentEditor() {
       page.setRotation(degrees((page.getRotation().angle + amount + 360) % 360));
     }), [transformPdf]);
 
+  const rotatePages = useCallback((pageNumbers: number[], amount: number) =>
+    transformPdf(
+      `Rotate ${pageNumbers.length} pages`,
+      (pdf) => {
+        pageNumbers.forEach((pageNumber) => {
+          const page = pdf.getPage(pageNumber - 1);
+          if (!page) return;
+          page.setRotation(degrees((page.getRotation().angle + amount + 360) % 360));
+        });
+      }
+    ), [transformPdf]);
+
   const remove = useCallback((pageNumber: number) =>
     transformPdf("Delete page", (pdf) => pdf.removePage(pageNumber - 1), (items) =>
       items
         .filter((item) => item.page !== pageNumber)
         .map((item) => item.page > pageNumber ? { ...item, page: item.page - 1 } : item)
     ), [transformPdf]);
+
+  const removePages = useCallback((pageNumbers: number[]) => {
+    const selected = new Set(pageNumbers);
+    return transformPdf(
+      `Delete ${pageNumbers.length} pages`,
+      (pdf) => {
+        [...selected]
+          .sort((left, right) => right - left)
+          .forEach((pageNumber) => pdf.removePage(pageNumber - 1));
+      },
+      (items) => items
+        .filter((item) => !selected.has(item.page))
+        .map((item) => ({
+          ...item,
+          page: item.page - pageNumbers.filter((page) => page < item.page).length
+        }))
+    );
+  }, [transformPdf]);
 
   const duplicate = useCallback((pageNumber: number) =>
     transformPdf("Duplicate page", async (pdf) => {
@@ -268,6 +298,40 @@ export function useDocumentEditor() {
       return [...shifted, ...copies];
     }), [transformPdf]);
 
+  const duplicatePages = useCallback(async (pageNumbers: number[]) => {
+    if (!current) return;
+    const selected = new Set(pageNumbers);
+    const source = await PDFDocument.load(current.bytes);
+    const output = await PDFDocument.create();
+    for (let pageNumber = 1; pageNumber <= source.getPageCount(); pageNumber += 1) {
+      const copies = await output.copyPages(
+        source,
+        selected.has(pageNumber)
+          ? [pageNumber - 1, pageNumber - 1]
+          : [pageNumber - 1]
+      );
+      copies.forEach((page) => output.addPage(page));
+    }
+    const annotations: Annotation[] = [];
+    current.annotations.forEach((item) => {
+      const shiftedPage = item.page +
+        pageNumbers.filter((page) => page < item.page).length;
+      annotations.push({ ...item, page: shiftedPage } as Annotation);
+      if (selected.has(item.page)) {
+        annotations.push({
+          ...clonePlain(item),
+          id: createLocalId(),
+          page: shiftedPage + 1
+        } as Annotation);
+      }
+    });
+    commit({
+      bytes: await output.save({ useObjectStreams: true }),
+      annotations,
+      label: `Duplicate ${pageNumbers.length} pages`
+    });
+  }, [commit, current]);
+
   const reorder = useCallback((from: number, to: number) =>
     transformPdf("Reorder page", async (pdf) => {
       if (from === to) return;
@@ -281,6 +345,43 @@ export function useDocumentEditor() {
       return item;
     })), [transformPdf]);
 
+  const reorderPages = useCallback(async (pageNumbers: number[], target: number) => {
+    if (!current) return;
+    const selected = [...new Set(pageNumbers)].sort((left, right) => left - right);
+    if (!selected.length || selected.includes(target)) return;
+    const source = await PDFDocument.load(current.bytes);
+    const original = Array.from(
+      { length: source.getPageCount() },
+      (_, index) => index + 1
+    );
+    const selectedSet = new Set(selected);
+    const remaining = original.filter((pageNumber) => !selectedSet.has(pageNumber));
+    const targetIndex = remaining.findIndex((pageNumber) => pageNumber >= target);
+    const insertionIndex = targetIndex === -1 ? remaining.length : targetIndex;
+    const order = [
+      ...remaining.slice(0, insertionIndex),
+      ...selected,
+      ...remaining.slice(insertionIndex)
+    ];
+    const output = await PDFDocument.create();
+    const copies = await output.copyPages(
+      source,
+      order.map((pageNumber) => pageNumber - 1)
+    );
+    copies.forEach((page) => output.addPage(page));
+    const newPageByOldPage = new Map(
+      order.map((oldPage, index) => [oldPage, index + 1])
+    );
+    commit({
+      bytes: await output.save({ useObjectStreams: true }),
+      annotations: current.annotations.map((item) => ({
+        ...item,
+        page: newPageByOldPage.get(item.page) ?? item.page
+      } as Annotation)),
+      label: `Reorder ${selected.length} pages`
+    });
+  }, [commit, current]);
+
   const merge = useCallback(async (otherBytes: Uint8Array) => {
     if (!current) return;
     const target = await PDFDocument.load(current.bytes);
@@ -291,6 +392,30 @@ export function useDocumentEditor() {
       bytes: await target.save({ useObjectStreams: true }),
       annotations: current.annotations,
       label: "Merge document"
+    });
+  }, [commit, current]);
+
+  const mergeMany = useCallback(async (
+    documents: Array<{ bytes: Uint8Array; current: boolean }>
+  ) => {
+    if (!current || !documents.length) return;
+    const output = await PDFDocument.create();
+    let pagesBeforeCurrent = 0;
+    let currentReached = false;
+    for (const document of documents) {
+      const source = await PDFDocument.load(document.bytes);
+      const copies = await output.copyPages(source, source.getPageIndices());
+      copies.forEach((page) => output.addPage(page));
+      if (document.current) currentReached = true;
+      else if (!currentReached) pagesBeforeCurrent += source.getPageCount();
+    }
+    commit({
+      bytes: await output.save({ useObjectStreams: true }),
+      annotations: current.annotations.map((item) => ({
+        ...item,
+        page: item.page + pagesBeforeCurrent
+      } as Annotation)),
+      label: `Merge ${documents.length} documents`
     });
   }, [commit, current]);
 
@@ -371,10 +496,15 @@ export function useDocumentEditor() {
     undo: () => setHistoryIndex((value) => Math.max(0, value - 1)),
     redo: () => setHistoryIndex((value) => Math.min(history.length - 1, value + 1)),
     rotate,
+    rotatePages,
     remove,
+    removePages,
     duplicate,
+    duplicatePages,
     reorder,
+    reorderPages,
     merge,
+    mergeMany,
     extract,
     addAnnotation,
     updateAnnotation,
@@ -384,8 +514,8 @@ export function useDocumentEditor() {
     optimize,
     flattened: () => current ? flattenPdf(current.bytes, current.annotations) : null
   }), [
-    addAnnotation, clear, current, duplicate, extract, history, historyIndex, load, restore,
-    flattenForms, merge, optimize, remove, removeAnnotation, reorder, rotate,
+    addAnnotation, clear, current, duplicate, duplicatePages, extract, history, historyIndex, load, restore,
+    flattenForms, merge, mergeMany, optimize, remove, removePages, removeAnnotation, reorder, reorderPages, rotate, rotatePages,
     sanitize, savedHistoryIndex, updateAnnotation
   ]);
 }

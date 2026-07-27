@@ -27,6 +27,7 @@ advertising, cloud processing, account system, or paid features.
 - Continuous page scrolling
 - High-DPI PDF.js rendering
 - Page thumbnail navigation
+- Nested PDF bookmark navigation with expandable outline sections
 - Zoom slider and zoom controls
 - Fit-to-width and fit-to-page modes
 - Native and browser-preview file pickers
@@ -41,9 +42,11 @@ advertising, cloud processing, account system, or paid features.
 ### Page editing
 
 - Drag-and-drop page reordering
-- Rotate individual pages left or right
-- Delete and duplicate pages
-- Merge multiple PDF documents
+- Ctrl/Command-click and Shift-click multi-page selection
+- Group page reordering by dragging a selected thumbnail
+- Rotate, delete, duplicate, or extract selected pages as one history action
+- Staged multi-document merge with ordering, page previews, removal, page
+  counts, and estimated output size
 - Split or extract selected page ranges
 - Undo and redo edit history
 
@@ -62,8 +65,13 @@ advertising, cloud processing, account system, or paid features.
 - Native system printing with page ranges, portrait or landscape layout, and
   `Ctrl`/`Command`+`P`
 - Crash-safe saving through same-folder temporary files and atomic replacement
+- Pre-save export review covering annotations, secure redaction, forms,
+  metadata, and estimated output size
 - Save / Discard / Cancel protection when closing with unsaved changes
-- Local crash-recovery snapshots that are removed after saving or discarding
+- Up to five local crash-recovery revisions per document window, with stale
+  detection, restore, and deletion controls in Preferences
+- Default-on local session restoration for the previous document, page,
+  scroll position, zoom, sidebar, and selected tool
 - Interactive form-field flattening
 - Metadata sanitization
 - PDF structure optimization
@@ -77,6 +85,10 @@ Selecting an annotation opens a resizable properties panel. Dark, light, and
 operating-system themes are supported, and workspace dimensions, zoom, and fit
 mode are remembered locally. The empty workspace provides drag-and-drop,
 Open, and recent-document entry points.
+
+Session restoration is enabled by default because all remembered state remains
+on the local computer. It can be disabled from Preferences, which immediately
+forgets the stored session.
 
 ## Keyboard shortcuts
 
@@ -201,6 +213,9 @@ SovereignPDF is designed to process documents without transmitting them:
 - No advertising or user tracking is included.
 - No account or cloud synchronization exists.
 - The production content security policy restricts external connections.
+- The Report Issue action opens the public GitHub issue form in the system
+  browser only after an explicit click. It does not upload documents,
+  diagnostics, file names, or paths.
 
 Dependency installation and update checks performed by development tools are
 separate from the installed application's document-processing behavior.
@@ -219,6 +234,8 @@ the application and never fall back to a network download.
 - Secure redaction rasterizes pages, which removes searchable text from the
   exported document.
 - Interactive form creation and editing are not yet implemented.
+- Bookmark creation, renaming, and deletion are not yet implemented; existing
+  PDF outlines can be browsed and used for navigation.
 - Bundled OCR currently recognizes English text; additional offline language
   packs are not yet included.
 - Release builds are not currently code-signed or notarized.
@@ -228,6 +245,10 @@ the application and never fall back to a network download.
 Contributions are welcome. Please open an issue before beginning a large feature
 or architectural change. All contributed functionality must preserve the
 offline-first privacy model and use license-compatible dependencies.
+
+Users can open the issue form from Preferences or from an application error.
+Error details are copied to the clipboard only on request so they can be
+reviewed before being included in a public report.
 
 Participation in the project is governed by the
 [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).

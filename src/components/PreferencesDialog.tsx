@@ -1,5 +1,6 @@
-import { FileCheck2, Monitor, Moon, Sun, WifiOff } from "lucide-react";
+import { Bug, ExternalLink, FileCheck2, Monitor, Moon, Sun, WifiOff } from "lucide-react";
 import type { TextStyle } from "../editor/useDocumentEditor";
+import type { RecoverySnapshot } from "../recoveryStore";
 import type { AppPreferences } from "../preferences";
 import { AppDialog } from "./AppDialog";
 
@@ -15,6 +16,10 @@ export function PreferencesDialog({
   onOpenDefaultApps,
   onClearLocalData,
   onChooseSaveFolder,
+  recoverySnapshots,
+  onRestoreRecovery,
+  onDeleteRecovery,
+  onReportIssue,
   onClose
 }: {
   preferences: AppPreferences;
@@ -26,6 +31,10 @@ export function PreferencesDialog({
   onOpenDefaultApps: () => void | Promise<void>;
   onClearLocalData: () => void;
   onChooseSaveFolder: () => void | Promise<void>;
+  recoverySnapshots: RecoverySnapshot[];
+  onRestoreRecovery: (snapshot: RecoverySnapshot) => void;
+  onDeleteRecovery: (snapshot: RecoverySnapshot) => void | Promise<void>;
+  onReportIssue: () => void | Promise<void>;
   onClose: () => void;
 }) {
   const updatePreferences = (updates: Partial<AppPreferences>) =>
@@ -71,6 +80,14 @@ export function PreferencesDialog({
         <p className="mt-3 text-[11px] leading-5 text-zinc-500">
           Sidebar width, annotation-properties width, zoom, and page-fit mode are remembered automatically.
         </p>
+        <div className="mt-3 border-t border-white/10 pt-3">
+          <PreferenceCheckbox
+            label="Restore the previous session"
+            description="Reopen the last local PDF and restore its page, scroll position, zoom, sidebar, and selected tool. Disable this to forget the session."
+            checked={preferences.restoreSession}
+            onChange={(restoreSession) => updatePreferences({ restoreSession })}
+          />
+        </div>
       </section>
 
       <section className="mt-3 rounded-lg border border-white/10 bg-black/15 p-4">
@@ -113,11 +130,86 @@ export function PreferencesDialog({
       </section>
 
       <section className="mt-3 rounded-lg border border-white/10 bg-black/15 p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-orange-500/10 text-orange-300">
+            <Bug size={18} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-zinc-100">Help improve SovereignPDF</h3>
+            <p className="mt-1 text-xs leading-5 text-zinc-400">
+              Report a bug or request a feature on GitHub. This opens your system browser only when you choose it; no document information or diagnostics are sent automatically.
+            </p>
+            <button
+              type="button"
+              className="mt-3 inline-flex h-9 items-center gap-2 rounded-md bg-orange-500/15 px-3 text-xs font-semibold text-orange-100 hover:bg-orange-500/25"
+              onClick={() => void onReportIssue()}
+            >
+              <ExternalLink size={14} />
+              Report an issue on GitHub
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-3 rounded-lg border border-white/10 bg-black/15 p-4">
+        <h3 className="text-sm font-semibold text-zinc-100">Recovery snapshots</h3>
+        <p className="mt-1 text-xs leading-5 text-zinc-400">
+          SovereignPDF keeps up to five local revisions for each document window.
+        </p>
+        <div className="mt-3 overflow-hidden rounded-lg border border-white/10">
+          {recoverySnapshots.length ? recoverySnapshots.map((snapshot) => {
+            const stale = Date.now() - snapshot.updatedAt > 7 * 24 * 60 * 60 * 1000;
+            return (
+              <div
+                key={`${snapshot.id}-${snapshot.updatedAt}`}
+                className="flex items-center gap-3 border-b border-white/5 px-3 py-2.5 last:border-0"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-xs font-medium text-zinc-200">
+                      {snapshot.fileName}
+                    </span>
+                    {stale && (
+                      <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300">
+                        Stale
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-zinc-500">
+                    {new Date(snapshot.updatedAt).toLocaleString()} · {snapshot.annotations.length} annotation{snapshot.annotations.length === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="h-7 rounded-md bg-orange-500/10 px-2 text-[10px] font-semibold text-orange-200 hover:bg-orange-500/20"
+                  onClick={() => onRestoreRecovery(snapshot)}
+                >
+                  Restore
+                </button>
+                <button
+                  type="button"
+                  className="h-7 rounded-md bg-red-500/10 px-2 text-[10px] font-semibold text-red-200 hover:bg-red-500/20"
+                  onClick={() => void onDeleteRecovery(snapshot)}
+                >
+                  Delete
+                </button>
+              </div>
+            );
+          }) : (
+            <p className="px-3 py-6 text-center text-xs text-zinc-500">
+              No unsaved recovery snapshots are stored.
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section className="mt-3 rounded-lg border border-white/10 bg-black/15 p-4">
         <h3 className="text-sm font-semibold text-zinc-100">Saving</h3>
         <div className="mt-3 space-y-3">
           <PreferenceCheckbox label="Confirm before overwriting" description="Ask before Save replaces the currently opened file." checked={preferences.confirmOverwrite} onChange={(confirmOverwrite) => updatePreferences({ confirmOverwrite })} />
           <PreferenceCheckbox label="Create automatic backup copies" description="Before overwriting, preserve the previous PDF beside it with a timestamped backup name." checked={preferences.automaticBackups} onChange={(automaticBackups) => updatePreferences({ automaticBackups })} />
           <PreferenceCheckbox label="Flatten annotations by default" description="Embed text, pen, highlight, and images as permanent PDF page content. If disabled, current overlay markup is omitted from the saved PDF." checked={preferences.flattenAnnotations} onChange={(flattenAnnotations) => updatePreferences({ flattenAnnotations })} />
+          <PreferenceCheckbox label="Show export summary before saving" description="Review annotation flattening, secure redactions, forms, metadata, and estimated output size before writing a PDF." checked={preferences.showExportSummary} onChange={(showExportSummary) => updatePreferences({ showExportSummary })} />
           <div>
             <span className="block text-xs font-medium text-zinc-200">Default Save As folder</span>
             <div className="mt-2 flex gap-2">

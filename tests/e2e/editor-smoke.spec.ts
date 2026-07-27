@@ -68,7 +68,20 @@ test("fresh preferences use privacy-conscious save defaults", async ({ page }) =
       name: /Flatten annotations by default/
     })
   ).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", {
+      name: /Restore the previous session/
+    })
+  ).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", {
+      name: /Show export summary before saving/
+    })
+  ).toBeChecked();
   await expect(page.getByText("Network access is disabled.")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Report an issue on GitHub" })
+  ).toBeVisible();
 });
 
 test("shows a visible error when a selected PDF cannot be parsed", async ({ page }) => {
@@ -83,6 +96,12 @@ test("shows a visible error when a selected PDF cannot be parsed", async ({ page
   });
 
   await expect(page.getByRole("alert")).toContainText("Unable to complete that action");
+  await expect(
+    page.getByRole("alert").getByRole("button", { name: "Report issue" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("alert").getByRole("button", { name: "Copy error details" })
+  ).toBeVisible();
 });
 
 test("shows document and page loading feedback instead of a blank preview", async ({
@@ -114,6 +133,10 @@ test("shows document and page loading feedback instead of a blank preview", asyn
   await expect(
     page.getByRole("status", { name: "Rendering page 1" })
   ).toBeHidden({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Bookmarks" }).click();
+  await expect(
+    page.getByText("This PDF does not contain a bookmark outline.")
+  ).toBeVisible();
 });
 
 test("loads, searches, rotates, annotates, and restores history", async ({
@@ -248,11 +271,89 @@ test("shows document status and provides searchable keyboard shortcuts", async (
   await shortcutDialog
     .getByRole("textbox", { name: "Search keyboard shortcuts" })
     .fill("actual size");
-  await expect(shortcutDialog).toContainText("Ctrl/⌘ 1");
+  await expect(shortcutDialog).toContainText("Showing shortcuts for Windows and Linux");
+  await expect(shortcutDialog).toContainText("Ctrl+1");
   await shortcutDialog.getByRole("button", { name: "Done" }).click();
 
   await page.keyboard.press("Control+1");
   await expect(page.getByLabel("Zoom percentage")).toHaveValue("100");
+});
+
+test("selects and rotates multiple pages as one history action", async ({ page }) => {
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "batch-pages.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+
+  const firstThumbnail = page.getByRole("button", { name: "1", exact: true });
+  const secondThumbnail = page.getByRole("button", { name: "2", exact: true });
+  await firstThumbnail.click();
+  await secondThumbnail.click({ modifiers: ["Control"] });
+  await expect(
+    page.getByRole("contentinfo", { name: "Document status" })
+  ).toContainText("2 pages selected");
+
+  await page.getByRole("button", { name: "Right" }).click();
+  const pageOne = page.locator('[aria-label="Page 1"]');
+  const pageTwo = page.locator('[aria-label="Page 2"]');
+  const pageThree = page.locator('[aria-label="Page 3"]');
+  await expect.poll(async () => {
+    const [one, two, three] = await Promise.all([
+      pageOne.boundingBox(),
+      pageTwo.boundingBox(),
+      pageThree.boundingBox()
+    ]);
+    return Boolean(
+      one && two && three &&
+      one.width > one.height &&
+      two.width > two.height &&
+      three.height > three.width
+    );
+  }).toBe(true);
+
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("contentinfo", { name: "Document status" })
+  ).toContainText("Page 2 of 3");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => {
+    const [one, two] = await Promise.all([
+      pageOne.boundingBox(),
+      pageTwo.boundingBox()
+    ]);
+    return Boolean(one && two && one.height > one.width && two.height > two.width);
+  }).toBe(true);
+});
+
+test("stages merge files before combining them", async ({ page }) => {
+  await page.goto("/");
+  const pdfInputs = page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  );
+  await pdfInputs.nth(0).setInputFiles({
+    name: "merge-base.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+  await pdfInputs.nth(1).setInputFiles({
+    name: "merge-addition.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+
+  const dialog = page.getByRole("dialog", { name: "Merge PDFs" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("merge-base.pdf");
+  await expect(dialog).toContainText("merge-addition.pdf");
+  await expect(dialog).toContainText("6 pages");
+  await expect(dialog.getByAltText("merge-base.pdf, page 1")).toBeVisible();
+  await dialog.getByRole("button", { name: "Move merge-base.pdf down" }).click();
+  await dialog.getByRole("button", { name: "Merge 2 PDFs" }).click();
+  await expect(page.getByText("6 pages", { exact: true })).toBeVisible();
 });
 
 test("persists the selected application theme locally", async ({ page }) => {
@@ -344,6 +445,9 @@ test("secure redaction removes underlying text only from affected pages", async 
   });
 
   await page.getByRole("button", { name: "Save PDF As" }).click();
+  const summary = page.getByRole("dialog", { name: "Review export" });
+  await expect(summary).toContainText("1 affected page will be rasterized");
+  await summary.getByRole("button", { name: "Continue to Save As" }).click();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Continue" }).click();
   const download = await downloadPromise;
@@ -391,7 +495,10 @@ test("protects unsaved work and writes a local recovery snapshot", async ({
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    const snapshot = await new Promise<{ annotations?: unknown[] } | undefined>(
+    const snapshot = await new Promise<{
+      revisions?: Array<{ annotations?: unknown[] }>;
+      annotations?: unknown[];
+    } | undefined>(
       (resolve, reject) => {
         const request = db.transaction("snapshots").objectStore("snapshots").get("browser-main");
         request.onsuccess = () => resolve(request.result);
@@ -399,8 +506,26 @@ test("protects unsaved work and writes a local recovery snapshot", async ({
       }
     );
     db.close();
-    return snapshot?.annotations?.length ?? 0;
+    return snapshot?.revisions?.[0]?.annotations?.length ??
+      snapshot?.annotations?.length ??
+      0;
   })).toBe(1);
+
+  await page.getByRole("button", { name: "Preferences" }).click();
+  const preferences = page.getByRole("dialog");
+  await expect(
+    preferences.getByRole("heading", { name: "Recovery snapshots" })
+  ).toBeVisible();
+  await expect(
+    preferences.getByText("recovery.pdf", { exact: true })
+  ).toBeVisible();
+  await expect(
+    preferences.getByRole("button", { name: "Restore" })
+  ).toBeVisible();
+  await expect(
+    preferences.getByRole("button", { name: "Delete" })
+  ).toBeVisible();
+  await preferences.getByRole("button", { name: "Close" }).click();
 
   const closeWasPrevented = await page.evaluate(() => {
     const event = new Event("beforeunload", { cancelable: true });

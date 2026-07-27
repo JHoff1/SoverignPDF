@@ -16,6 +16,14 @@
     "dialog:allow-open",
     "dialog:allow-save",
     "fs:allow-read-file",
-    "fs:allow-write-file"
+    "fs:allow-write-file",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://github.com/JHoff1/SoverignPDF/issues*"
+        }
+      ]
+    }
   ]
 }

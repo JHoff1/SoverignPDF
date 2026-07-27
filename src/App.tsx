@@ -34,6 +34,7 @@ import {
 } from "@tauri-apps/api/window";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   GlobalWorkerOptions,
   PasswordResponses,
@@ -60,7 +61,10 @@ import {
   parsePageRanges
 } from "./localUtils";
 import {
+  clearAllRecoveries,
   clearRecovery,
+  deleteRecoveryRevision,
+  listRecoverySnapshots,
   readRecovery,
   saveRecovery,
   type RecoverySnapshot
@@ -103,10 +107,34 @@ import {
 } from "./preferences";
 import { StatusBar } from "./components/StatusBar";
 import { ShortcutsDialog } from "./components/ShortcutsDialog";
+import {
+  BookmarksPanel,
+  type BookmarkItem
+} from "./components/BookmarksPanel";
+import {
+  MergeDialog,
+  type MergeCandidate
+} from "./components/MergeDialog";
+import { ExportSummaryDialog } from "./components/ExportSummaryDialog";
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const WINDOW_BOUNDS_KEY = "sovereignpdf.window-bounds.v1";
+const SESSION_KEY = "sovereignpdf.last-session.v1";
+const GITHUB_ISSUES_URL = "https://github.com/JHoff1/SoverignPDF/issues/new";
+
+type StoredSession = {
+  sourcePath: string;
+  fileName: string;
+  currentPage: number;
+  scrollTop: number;
+  zoom: number;
+  viewMode: ViewMode;
+  sidebarTab: "pages" | "bookmarks";
+  sidebarOpen: boolean;
+  activeTool: Tool;
+  updatedAt: number;
+};
 
 function baseName(path: string) {
   return path.split(/[\\/]/).pop() ?? path;
@@ -200,13 +228,19 @@ export default function App() {
   const [fileName, setFileName] = useState("No document open");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPage, setSelectedPage] = useState(1);
+  const [selectedPages, setSelectedPages] = useState<Set<number>>(
+    () => new Set([1])
+  );
   const [zoom, setZoom] = useState(preferences.zoom);
   const [viewMode, setViewMode] = useState<ViewMode>(preferences.viewMode);
   const [activeTool, setActiveTool] = useState<Tool>("select");
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [textStyle, setTextStyle] = useState<TextStyle>(preferences.textStyle);
   const [sidebarTab, setSidebarTab] = useState<"pages" | "bookmarks">("pages");
+  const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
+  const [bookmarksLoading, setBookmarksLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [workspaceScrollTop, setWorkspaceScrollTop] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(preferences.sidebarWidth);
   const [propertiesWidth, setPropertiesWidth] = useState(preferences.propertiesWidth);
   const [renderingPages, setRenderingPages] = useState<Set<number>>(() => new Set());
@@ -217,7 +251,7 @@ export default function App() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [preparedPageCount, setPreparedPageCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [activeDialog, setActiveDialog] = useState<"preferences" | "shortcuts" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | null>(null);
+  const [activeDialog, setActiveDialog] = useState<"preferences" | "shortcuts" | "merge" | "export-summary" | "save" | "overwrite" | "split" | "split-save" | "print" | "password" | "unsaved-close" | "recovery" | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveForceAs, setSaveForceAs] = useState(false);
@@ -227,16 +261,51 @@ export default function App() {
   const [printError, setPrintError] = useState("");
   const [printOrientation, setPrintOrientation] = useState<PrintOrientation>("portrait");
   const [pendingSplitBytes, setPendingSplitBytes] = useState<Uint8Array | null>(null);
+  const [mergeCandidates, setMergeCandidates] = useState<MergeCandidate[]>([]);
   const [successMessage, setSuccessMessage] = useState("");
   const [preferenceStatus, setPreferenceStatus] = useState("");
   const [passwordValue, setPasswordValue] = useState("");
   const [passwordIncorrect, setPasswordIncorrect] = useState(false);
   const [passwordProtected, setPasswordProtected] = useState(false);
+  const [formsFlattened, setFormsFlattened] = useState(false);
+  const [metadataSanitized, setMetadataSanitized] = useState(false);
   const [pendingRecovery, setPendingRecovery] = useState<RecoverySnapshot | null>(null);
+  const [recoverySnapshots, setRecoverySnapshots] = useState<RecoverySnapshot[]>([]);
+  const [recoveryNotice, setRecoveryNotice] = useState("");
   const browserFileInput = useRef<HTMLInputElement>(null);
   const mergeFileInput = useRef<HTMLInputElement>(null);
   const imageFileInput = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const pageSelectionAnchor = useRef(1);
+  const sessionRestoreAttempted = useRef(false);
+
+  const reportIssue = async () => {
+    try {
+      if (isTauri()) {
+        await openUrl(GITHUB_ISSUES_URL);
+      } else {
+        window.open(GITHUB_ISSUES_URL, "_blank", "noopener,noreferrer");
+      }
+    } catch (cause) {
+      setError(errorMessage(cause, "The GitHub issue page could not be opened."));
+    }
+  };
+
+  const copyErrorDetails = async () => {
+    if (!error) return;
+    const details = [
+      "SovereignPDF error report",
+      `Platform: ${navigator.platform || "Unknown"}`,
+      `Error: ${error}`
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(details);
+      setSuccessMessage("Error details copied. Review them before including them in a report.");
+    } catch {
+      setSuccessMessage("The error details could not be copied.");
+    }
+  };
+  const pendingSessionRestore = useRef<StoredSession | null>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [sourcePath, setSourcePath] = useState<string | null>(null);
   const pendingImage = useRef<{ page: number; x: number; y: number } | null>(null);
@@ -271,12 +340,19 @@ export default function App() {
     []
   );
 
+  const refreshRecoverySnapshots = useCallback(() => {
+    void listRecoverySnapshots()
+      .then(setRecoverySnapshots)
+      .catch(() => setRecoverySnapshots([]));
+  }, []);
+
   useEffect(() => {
     dirtyRef.current = editor.isDirty;
   }, [editor.isDirty]);
 
   useEffect(() => {
     let cancelled = false;
+    refreshRecoverySnapshots();
     void readRecovery(recoveryId).then((snapshot) => {
       if (cancelled || !snapshot || editor.bytes) return;
       setPendingRecovery(snapshot);
@@ -287,7 +363,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [editor.bytes, recoveryId]);
+  }, [editor.bytes, recoveryId, refreshRecoverySnapshots]);
 
   useEffect(() => {
     if (!editor.isDirty || !editor.bytes) return;
@@ -300,6 +376,9 @@ export default function App() {
         bytes: bytes.buffer,
         annotations: clonePlain(editor.annotations),
         updatedAt: Date.now()
+      }).then(() => {
+        setRecoveryNotice("Recovery snapshot updated");
+        refreshRecoverySnapshots();
       }).catch(() => undefined);
     }, 900);
     return () => window.clearTimeout(timeout);
@@ -309,8 +388,15 @@ export default function App() {
     editor.isDirty,
     fileName,
     recoveryId,
+    refreshRecoverySnapshots,
     sourcePath
   ]);
+
+  useEffect(() => {
+    if (!recoveryNotice) return;
+    const timeout = window.setTimeout(() => setRecoveryNotice(""), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [recoveryNotice]);
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -376,6 +462,41 @@ export default function App() {
     }, 250);
     return () => window.clearTimeout(timeout);
   }, [propertiesWidth, sidebarWidth, viewMode, zoom]);
+
+  useEffect(() => {
+    if (!preferences.restoreSession) {
+      window.localStorage.removeItem(SESSION_KEY);
+      return;
+    }
+    if (!sourcePath || !isTauri()) return;
+    const timeout = window.setTimeout(() => {
+      const session: StoredSession = {
+        sourcePath,
+        fileName,
+        currentPage,
+        scrollTop: workspaceScrollTop,
+        zoom,
+        viewMode,
+        sidebarTab,
+        sidebarOpen,
+        activeTool,
+        updatedAt: Date.now()
+      };
+      window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [
+    activeTool,
+    currentPage,
+    fileName,
+    preferences.restoreSession,
+    sidebarOpen,
+    sidebarTab,
+    sourcePath,
+    viewMode,
+    workspaceScrollTop,
+    zoom
+  ]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -654,6 +775,8 @@ export default function App() {
     setSourcePath(path);
     setError(null);
     setPasswordProtected(false);
+    setFormsFlattened(false);
+    setMetadataSanitized(false);
     if (isTauri()) {
       const windowLabel = getCurrentWebview().label;
       void invoke("mark_window_document_open", { windowLabel });
@@ -667,6 +790,8 @@ export default function App() {
     }
     setCurrentPage(1);
     setSelectedPage(1);
+    setSelectedPages(new Set([1]));
+    pageSelectionAnchor.current = 1;
     setZoom(preferences.zoom);
     setViewMode(preferences.viewMode);
   }, [editor.load, preferences.viewMode, preferences.zoom]);
@@ -683,6 +808,65 @@ export default function App() {
       throw cause;
     }
   }, [loadPdf]);
+
+  useEffect(() => {
+    if (
+      !isTauri() ||
+      !preferences.restoreSession ||
+      editor.bytes ||
+      sessionRestoreAttempted.current ||
+      recoveryId !== "main"
+    ) return;
+    const timeout = window.setTimeout(() => {
+      if (activeDialog) return;
+      sessionRestoreAttempted.current = true;
+      try {
+        const session = JSON.parse(
+          window.localStorage.getItem(SESSION_KEY) ?? "null"
+        ) as StoredSession | null;
+        if (!session?.sourcePath) return;
+        pendingSessionRestore.current = session;
+        void readAndLoadPdf(session.sourcePath).catch(() => {
+          pendingSessionRestore.current = null;
+          window.localStorage.removeItem(SESSION_KEY);
+        });
+      } catch {
+        window.localStorage.removeItem(SESSION_KEY);
+      }
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [
+    activeDialog,
+    editor.bytes,
+    preferences.restoreSession,
+    readAndLoadPdf,
+    recoveryId
+  ]);
+
+  useEffect(() => {
+    const session = pendingSessionRestore.current;
+    if (!session || !documentPrepared) return;
+    pendingSessionRestore.current = null;
+    const restoredPage = Math.min(
+      Math.max(1, session.currentPage),
+      pages.length
+    );
+    setCurrentPage(restoredPage);
+    setSelectedPage(restoredPage);
+    setSelectedPages(new Set([restoredPage]));
+    pageSelectionAnchor.current = restoredPage;
+    setZoom(Math.min(4, Math.max(0.25, session.zoom)));
+    setViewMode(session.viewMode);
+    setSidebarTab(session.sidebarTab);
+    setSidebarOpen(session.sidebarOpen);
+    setActiveTool(session.activeTool);
+    window.setTimeout(() => {
+      if (workspaceRef.current) {
+        workspaceRef.current.scrollTop = Math.max(0, session.scrollTop);
+      }
+    }, 100);
+    setSuccessMessage(`Restored your previous session for ${session.fileName}.`);
+  }, [documentPrepared, pages.length]);
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -794,6 +978,55 @@ export default function App() {
     if (!pdfDocument) return;
     setSelectedPage((page) => Math.min(Math.max(1, page), pdfDocument.numPages));
     setCurrentPage((page) => Math.min(Math.max(1, page), pdfDocument.numPages));
+    setSelectedPages((current) => {
+      const valid = [...current].filter((page) => page <= pdfDocument.numPages);
+      return new Set(valid.length ? valid : [Math.min(selectedPage, pdfDocument.numPages)]);
+    });
+  }, [pdfDocument]);
+
+  useEffect(() => {
+    if (!pdfDocument) {
+      setBookmarks([]);
+      setBookmarksLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setBookmarksLoading(true);
+    void (async () => {
+      const outline = await pdfDocument.getOutline();
+      type OutlineEntry = NonNullable<typeof outline>[number];
+      const resolvePage = async (destination: OutlineEntry["dest"]) => {
+        const explicitDestination = typeof destination === "string"
+          ? await pdfDocument.getDestination(destination)
+          : destination;
+        if (!explicitDestination?.length) return null;
+        const reference = explicitDestination[0];
+        if (typeof reference === "number") return reference + 1;
+        try {
+          return await pdfDocument.getPageIndex(reference) + 1;
+        } catch {
+          return null;
+        }
+      };
+      const convert = async (
+        items: OutlineEntry[],
+        prefix = "bookmark"
+      ): Promise<BookmarkItem[]> => Promise.all(items.map(async (item, index) => ({
+        id: `${prefix}-${index}`,
+        title: item.title || "Untitled bookmark",
+        page: await resolvePage(item.dest),
+        children: await convert(item.items ?? [], `${prefix}-${index}`)
+      })));
+      const nextBookmarks = await convert(outline ?? []);
+      if (!cancelled) setBookmarks(nextBookmarks);
+    })().catch(() => {
+      if (!cancelled) setBookmarks([]);
+    }).finally(() => {
+      if (!cancelled) setBookmarksLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [pdfDocument]);
 
   useEffect(() => {
@@ -829,6 +1062,41 @@ export default function App() {
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
     setCurrentPage(pageNumber);
     setSelectedPage(pageNumber);
+    setSelectedPages(new Set([pageNumber]));
+    pageSelectionAnchor.current = pageNumber;
+  }, []);
+
+  const selectedPageNumbers = useMemo(
+    () => [...selectedPages].sort((left, right) => left - right),
+    [selectedPages]
+  );
+
+  const selectThumbnailPage = useCallback((
+    pageNumber: number,
+    modifiers: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }
+  ) => {
+    setSelectedPage(pageNumber);
+    setCurrentPage(pageNumber);
+    if (modifiers.shiftKey) {
+      const start = Math.min(pageSelectionAnchor.current, pageNumber);
+      const end = Math.max(pageSelectionAnchor.current, pageNumber);
+      setSelectedPages(new Set(
+        Array.from({ length: end - start + 1 }, (_, index) => start + index)
+      ));
+      return;
+    }
+    if (modifiers.ctrlKey || modifiers.metaKey) {
+      setSelectedPages((current) => {
+        const next = new Set(current);
+        if (next.has(pageNumber) && next.size > 1) next.delete(pageNumber);
+        else next.add(pageNumber);
+        return next;
+      });
+      pageSelectionAnchor.current = pageNumber;
+      return;
+    }
+    setSelectedPages(new Set([pageNumber]));
+    pageSelectionAnchor.current = pageNumber;
   }, []);
 
   const handleRenderingChange = useCallback((pageNumber: number, rendering: boolean) => {
@@ -1062,7 +1330,9 @@ export default function App() {
         downloadBytes(bytes, requestedName);
         setFileName(requestedName);
         editor.markSaved();
-        void clearRecovery(recoveryId).catch(() => undefined);
+        void clearRecovery(recoveryId)
+          .then(refreshRecoverySnapshots)
+          .catch(() => undefined);
         return true;
       }
       let path = forceSaveAs ? null : sourcePath;
@@ -1087,7 +1357,9 @@ export default function App() {
       setSourcePath(path);
       setFileName(baseName(path));
       editor.markSaved();
-      void clearRecovery(recoveryId).catch(() => undefined);
+      void clearRecovery(recoveryId)
+        .then(refreshRecoverySnapshots)
+        .catch(() => undefined);
       return true;
     } finally {
       setSaving(false);
@@ -1100,6 +1372,7 @@ export default function App() {
     preferences,
     prepareExportBytes,
     recoveryId,
+    refreshRecoverySnapshots,
     sourcePath
   ]);
 
@@ -1144,13 +1417,33 @@ export default function App() {
     setSuccessMessage("Your locally recovered unsaved work has been restored.");
   }, [editor, pendingRecovery]);
 
+  const restoreRecoveryRevision = useCallback((snapshot: RecoverySnapshot) => {
+    editor.restore(new Uint8Array(snapshot.bytes), snapshot.annotations);
+    setFileName(snapshot.fileName);
+    setSourcePath(snapshot.sourcePath);
+    setCurrentPage(1);
+    setSelectedPage(1);
+    setSelectedPages(new Set([1]));
+    setActiveDialog(null);
+    setSuccessMessage(
+      `Recovered the ${new Date(snapshot.updatedAt).toLocaleString()} snapshot of ${snapshot.fileName}.`
+    );
+  }, [editor]);
+
+  const removeRecoveryRevision = useCallback(async (snapshot: RecoverySnapshot) => {
+    await deleteRecoveryRevision(snapshot.id, snapshot.updatedAt);
+    refreshRecoverySnapshots();
+    setPreferenceStatus("Recovery snapshot deleted from this computer.");
+  }, [refreshRecoverySnapshots]);
+
   const discardRecovery = useCallback(() => {
     void clearRecovery(recoveryId).catch(() => undefined);
     setPendingRecovery(null);
     setActiveDialog(null);
-  }, [recoveryId]);
+    refreshRecoverySnapshots();
+  }, [recoveryId, refreshRecoverySnapshots]);
 
-  const requestSave = useCallback((forceSaveAs = false) => {
+  const continueSaveRequest = useCallback((forceSaveAs = false) => {
     if (!forceSaveAs && isTauri() && sourcePath) {
       if (preferences.confirmOverwrite) {
         setActiveDialog("overwrite");
@@ -1165,6 +1458,16 @@ export default function App() {
     setSaveForceAs(forceSaveAs || !sourcePath);
     setActiveDialog("save");
   }, [fileName, preferences.confirmOverwrite, savePdf, sourcePath]);
+
+  const requestSave = useCallback((forceSaveAs = false) => {
+    const actualSaveAs = forceSaveAs || !sourcePath;
+    if (preferences.showExportSummary) {
+      setSaveForceAs(actualSaveAs);
+      setActiveDialog("export-summary");
+      return;
+    }
+    continueSaveRequest(actualSaveAs);
+  }, [continueSaveRequest, preferences.showExportSummary, sourcePath]);
 
   const requestPrint = useCallback(() => {
     if (!pdfDocument) return;
@@ -1269,50 +1572,137 @@ export default function App() {
     }
   }, [saveForceAs, saveName, savePdf]);
 
-  const mergePdfBytes = useCallback(async (bytes: Uint8Array, name: string) => {
+  const buildMergeCandidate = useCallback(async (
+    bytes: Uint8Array,
+    name: string,
+    current = false
+  ): Promise<MergeCandidate> => {
+    const document = await getDocument({ data: cloneForPdfJs(bytes) }).promise;
+    const previews: string[] = [];
+    for (
+      let pageNumber = 1;
+      pageNumber <= Math.min(4, document.numPages);
+      pageNumber += 1
+    ) {
+      const page = await document.getPage(pageNumber);
+      const raw = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: 120 / raw.width });
+      const canvas = window.document.createElement("canvas");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) continue;
+      await page.render({ canvasContext: context, viewport }).promise;
+      previews.push(canvas.toDataURL("image/jpeg", 0.72));
+    }
+    const candidate: MergeCandidate = {
+      id: createLocalId(),
+      name,
+      bytes,
+      pageCount: document.numPages,
+      size: bytes.byteLength,
+      current,
+      previews
+    };
+    await document.destroy();
+    return candidate;
+  }, []);
+
+  const stageMergeDocuments = useCallback(async (
+    documents: Array<{ bytes: Uint8Array; name: string }>
+  ) => {
+    if (!editor.bytes || !documents.length) return;
     setBusy(true);
-    setLoadingStage(`Merging ${name}…`);
-    setLoadingProgress(0.12);
+    setLoadingStage("Preparing merge previews…");
+    setLoadingProgress(0.1);
     setError(null);
     try {
-      await editor.merge(bytes);
-      setLoadingStage("Preparing the merged document…");
-      setLoadingProgress(0.35);
+      const additions = await Promise.all(
+        documents.map((document) =>
+          buildMergeCandidate(document.bytes, document.name)
+        )
+      );
+      let currentCandidates = mergeCandidates;
+      if (!currentCandidates.length) {
+        currentCandidates = [
+          await buildMergeCandidate(editor.bytes, fileName, true)
+        ];
+      }
+      setMergeCandidates([...currentCandidates, ...additions]);
+      setActiveDialog("merge");
     } catch (cause) {
+      setError(errorMessage(cause, "One of the selected PDFs could not be prepared."));
+    } finally {
       setBusy(false);
-      setError(cause instanceof Error ? cause.message : "The PDF could not be merged.");
     }
-  }, [editor]);
+  }, [buildMergeCandidate, editor.bytes, fileName, mergeCandidates]);
 
-  const mergePdf = useCallback(async () => {
-    if (!documentPrepared) return;
+  const chooseMergeFiles = useCallback(async () => {
     if (!isTauri()) {
       mergeFileInput.current?.click();
       return;
     }
-    const path = await open({
-      multiple: false,
+    const paths = await open({
+      multiple: true,
       filters: [{ name: "PDF documents", extensions: ["pdf"] }]
     });
-    if (typeof path === "string") {
-      setBusy(true);
-      setLoadingStage(`Reading ${baseName(path)}…`);
-      setLoadingProgress(0.04);
-      try {
-        await mergePdfBytes(new Uint8Array(await readLocalPdf(path)), baseName(path));
-      } catch (cause) {
-        setBusy(false);
-        setError(cause instanceof Error ? cause.message : "The PDF could not be read.");
-      }
+    const selectedPaths = typeof paths === "string" ? [paths] : paths;
+    if (!selectedPaths?.length) return;
+    try {
+      await stageMergeDocuments(await Promise.all(selectedPaths.map(async (path) => ({
+        name: baseName(path),
+        bytes: new Uint8Array(await readLocalPdf(path))
+      }))));
+    } catch (cause) {
+      setError(errorMessage(cause, "The selected PDFs could not be read."));
     }
-  }, [documentPrepared, mergePdfBytes]);
+  }, [stageMergeDocuments]);
+
+  const mergePdf = useCallback(async () => {
+    if (!documentPrepared) return;
+    if (!mergeCandidates.length) setMergeCandidates([]);
+    await chooseMergeFiles();
+  }, [chooseMergeFiles, documentPrepared, mergeCandidates.length]);
+
+  const confirmMerge = useCallback(async () => {
+    if (mergeCandidates.length < 2) return;
+    setDialogBusy(true);
+    try {
+      await editor.mergeMany(mergeCandidates.map((candidate) => ({
+        bytes: candidate.bytes,
+        current: candidate.current
+      })));
+      setFormsFlattened(false);
+      setMetadataSanitized(false);
+      setMergeCandidates([]);
+      setActiveDialog(null);
+      setSelectedPages(new Set([1]));
+      setSelectedPage(1);
+      setCurrentPage(1);
+      setSuccessMessage("The staged PDFs were merged in the selected order.");
+    } catch (cause) {
+      setError(errorMessage(cause, "The PDFs could not be merged."));
+    } finally {
+      setDialogBusy(false);
+    }
+  }, [editor, mergeCandidates]);
+
+  const flattenDocumentForms = useCallback(async () => {
+    await editor.flattenForms();
+    setFormsFlattened(true);
+  }, [editor]);
+
+  const sanitizeDocumentMetadata = useCallback(async () => {
+    await editor.sanitize();
+    setMetadataSanitized(true);
+  }, [editor]);
 
   const splitPdf = useCallback(() => {
     if (!documentPrepared) return;
-    setSplitRanges(String(selectedPage));
+    setSplitRanges(selectedPageNumbers.join(","));
     setSplitError("");
     setActiveDialog("split");
-  }, [documentPrepared, selectedPage]);
+  }, [documentPrepared, selectedPageNumbers]);
 
   const confirmSplit = useCallback(async () => {
     const parsed = parsePageRanges(splitRanges, pages.length);
@@ -1370,22 +1760,31 @@ export default function App() {
   }, [downloadBytes, pendingSplitBytes, preferences.defaultSaveFolder, saveName]);
 
   const deleteSelectedPage = useCallback(() => {
-    if (!pdfDocument || !documentPrepared || pdfDocument.numPages <= 1) return;
-    const nextSelection = Math.min(selectedPage, pdfDocument.numPages - 1);
-    void editor.remove(selectedPage);
+    if (
+      !pdfDocument ||
+      !documentPrepared ||
+      pdfDocument.numPages - selectedPageNumbers.length < 1
+    ) return;
+    const nextSelection = Math.min(
+      selectedPageNumbers[0],
+      pdfDocument.numPages - selectedPageNumbers.length
+    );
+    void editor.removePages(selectedPageNumbers);
     setSelectedPage(nextSelection);
     setCurrentPage(nextSelection);
-  }, [documentPrepared, editor, pdfDocument, selectedPage]);
+    setSelectedPages(new Set([nextSelection]));
+    pageSelectionAnchor.current = nextSelection;
+  }, [documentPrepared, editor, pdfDocument, selectedPageNumbers]);
 
   const duplicateSelectedPage = useCallback(() => {
     if (!documentPrepared) return;
-    void editor.duplicate(selectedPage);
-  }, [documentPrepared, editor, selectedPage]);
+    void editor.duplicatePages(selectedPageNumbers);
+  }, [documentPrepared, editor, selectedPageNumbers]);
 
   const rotateSelectedPage = useCallback((amount: number) => {
     if (!documentPrepared) return;
-    void editor.rotate(selectedPage, amount);
-  }, [documentPrepared, editor, selectedPage]);
+    void editor.rotatePages(selectedPageNumbers, amount);
+  }, [documentPrepared, editor, selectedPageNumbers]);
 
   const toggleSearch = useCallback(() => {
     setSearchOpen((open) => !open);
@@ -1425,6 +1824,7 @@ export default function App() {
   const clearLocalPreferences = useCallback(() => {
     window.localStorage.removeItem(PREFERENCES_KEY);
     window.localStorage.removeItem(WINDOW_BOUNDS_KEY);
+    window.localStorage.removeItem(SESSION_KEY);
     const reset = clonePlain(DEFAULT_PREFERENCES);
     setPreferences(reset);
     setTextStyle(reset.textStyle);
@@ -1432,6 +1832,9 @@ export default function App() {
     setViewMode(reset.viewMode);
     setSidebarWidth(reset.sidebarWidth);
     setPropertiesWidth(reset.propertiesWidth);
+    void clearAllRecoveries()
+      .then(() => setRecoverySnapshots([]))
+      .catch(() => undefined);
     setPreferenceStatus("Recent file paths and locally stored preferences were cleared.");
   }, []);
 
@@ -1562,6 +1965,9 @@ export default function App() {
         setSelectedAnnotationId(null);
         setActiveTool("select");
         setSearchOpen(false);
+        setSelectedPage(currentPage);
+        setSelectedPages(new Set([currentPage]));
+        pageSelectionAnchor.current = currentPage;
         return;
       }
       if (
@@ -1590,6 +1996,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleAppShortcut);
   }, [
     activeDialog,
+    currentPage,
     deleteSelectedPage,
     documentPrepared,
     editor,
@@ -1628,6 +2035,7 @@ export default function App() {
     if (renderingPages.size) {
       return `Rendering ${renderingPages.size} page${renderingPages.size === 1 ? "" : "s"}…`;
     }
+    if (recoveryNotice) return recoveryNotice;
     return "";
   }, [
     busy,
@@ -1638,6 +2046,7 @@ export default function App() {
     pdfDocument,
     preparedPageCount,
     renderingPages.size,
+    recoveryNotice,
     saving
   ]);
 
@@ -1670,19 +2079,19 @@ export default function App() {
       <input
         ref={mergeFileInput}
         type="file"
+        multiple
         accept="application/pdf,.pdf"
         className="hidden"
         onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          if (file) {
-            setBusy(true);
-            setLoadingStage(`Reading ${file.name}…`);
-            setLoadingProgress(0.04);
-            void file.arrayBuffer()
-              .then((data) => mergePdfBytes(new Uint8Array(data), file.name))
+          const files = [...(event.currentTarget.files ?? [])];
+          if (files.length) {
+            void Promise.all(files.map(async (file) => ({
+              name: file.name,
+              bytes: new Uint8Array(await file.arrayBuffer())
+            })))
+              .then(stageMergeDocuments)
               .catch((cause) => {
-                setBusy(false);
-                setError(cause instanceof Error ? cause.message : "The PDF could not be read.");
+                setError(errorMessage(cause, "The selected PDFs could not be read."));
               });
           }
           event.currentTarget.value = "";
@@ -1728,11 +2137,62 @@ export default function App() {
           onOpenDefaultApps={openDefaultAppSettings}
           onClearLocalData={clearLocalPreferences}
           onChooseSaveFolder={chooseDefaultSaveFolder}
+          recoverySnapshots={recoverySnapshots}
+          onRestoreRecovery={restoreRecoveryRevision}
+          onDeleteRecovery={removeRecoveryRevision}
+          onReportIssue={reportIssue}
           onClose={() => setActiveDialog(null)}
         />
       )}
       {activeDialog === "shortcuts" && (
         <ShortcutsDialog onClose={() => setActiveDialog(null)} />
+      )}
+      {activeDialog === "merge" && (
+        <MergeDialog
+          candidates={mergeCandidates}
+          busy={dialogBusy}
+          onAdd={chooseMergeFiles}
+          onMove={(index, direction) => {
+            setMergeCandidates((current) => {
+              const next = [...current];
+              const target = index + direction;
+              if (target < 0 || target >= next.length) return current;
+              [next[index], next[target]] = [next[target], next[index]];
+              return next;
+            });
+          }}
+          onRemove={(id) => setMergeCandidates((current) =>
+            current.filter((candidate) => candidate.id !== id)
+          )}
+          onCancel={() => {
+            setMergeCandidates([]);
+            setActiveDialog(null);
+          }}
+          onConfirm={confirmMerge}
+        />
+      )}
+      {activeDialog === "export-summary" && (
+        <ExportSummaryDialog
+          saveAs={saveForceAs}
+          annotationCount={editor.annotations.length}
+          flattenAnnotations={
+            preferences.flattenAnnotations ||
+            editor.annotations.some((annotation) => annotation.kind === "redaction")
+          }
+          redactionPageCount={new Set(
+            editor.annotations
+              .filter((annotation) => annotation.kind === "redaction")
+              .map((annotation) => annotation.page)
+          ).size}
+          formsFlattened={formsFlattened}
+          metadataSanitized={metadataSanitized}
+          estimatedSize={
+            (editor.bytes?.byteLength ?? 0) +
+            editor.annotations.length * 160
+          }
+          onCancel={() => setActiveDialog(null)}
+          onContinue={() => continueSaveRequest(saveForceAs)}
+        />
       )}
       {activeDialog === "password" && (
         <PasswordDialog
@@ -1851,6 +2311,22 @@ export default function App() {
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold">Unable to complete that action</p>
             <p className="mt-1 break-words text-xs leading-5 text-red-100/80">{error}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="h-8 rounded-md bg-red-100/10 px-2.5 text-[11px] font-semibold text-red-50 hover:bg-red-100/15"
+                onClick={() => void reportIssue()}
+              >
+                Report issue
+              </button>
+              <button
+                type="button"
+                className="h-8 rounded-md border border-red-100/15 px-2.5 text-[11px] font-medium text-red-100/80 hover:bg-red-100/10"
+                onClick={() => void copyErrorDetails()}
+              >
+                Copy error details
+              </button>
+            </div>
           </div>
           <button
             type="button"
@@ -1924,6 +2400,7 @@ export default function App() {
 
       <EditorToolbar
         pageCount={pdfDocument?.numPages ?? 0}
+        selectionCount={selectedPageNumbers.length}
         documentPrepared={documentPrepared}
         hasDocument={Boolean(pdfDocument)}
         passwordProtected={passwordProtected}
@@ -1941,9 +2418,9 @@ export default function App() {
         onRedo={editor.redo}
         onRotate={rotateSelectedPage}
         onToolChange={setActiveTool}
-        onFlattenForms={editor.flattenForms}
+        onFlattenForms={flattenDocumentForms}
         onOptimize={editor.optimize}
-        onSanitize={editor.sanitize}
+        onSanitize={sanitizeDocumentMetadata}
         onToggleSearch={toggleSearch}
         onZoomChange={(nextZoom) => {
           setZoom(nextZoom);
@@ -2002,15 +2479,35 @@ export default function App() {
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {sidebarTab === "pages" ? (
                 <div className="space-y-2">
-                  {pages.map((page) => <PageThumbnail key={page.pageNumber} page={page} selected={selectedPage === page.pageNumber} reorderEnabled={documentPrepared} onClick={() => jumpToPage(page.pageNumber)} onMove={(from, to) => {
+                  {pages.map((page) => <PageThumbnail key={page.pageNumber} page={page} selected={selectedPages.has(page.pageNumber)} selectedPages={selectedPageNumbers} reorderEnabled={documentPrepared} onClick={(event) => selectThumbnailPage(page.pageNumber, event)} onMove={(from, to) => {
                     if (!documentPrepared) return;
-                    void editor.reorder(from, to);
-                    setSelectedPage(to);
-                    setCurrentPage(to);
+                    const selectedSet = new Set(from);
+                    const remaining = pages
+                      .map((item) => item.pageNumber)
+                      .filter((pageNumber) => !selectedSet.has(pageNumber));
+                    const targetIndex = remaining.findIndex((pageNumber) => pageNumber >= to);
+                    const insertionIndex = targetIndex === -1 ? remaining.length : targetIndex;
+                    const order = [
+                      ...remaining.slice(0, insertionIndex),
+                      ...from,
+                      ...remaining.slice(insertionIndex)
+                    ];
+                    const nextSelection = order.flatMap((oldPage, index) =>
+                      selectedSet.has(oldPage) ? [index + 1] : []
+                    );
+                    void editor.reorderPages(from, to);
+                    setSelectedPage(nextSelection[0]);
+                    setCurrentPage(nextSelection[0]);
+                    setSelectedPages(new Set(nextSelection));
+                    pageSelectionAnchor.current = nextSelection[0];
                   }} />)}
                 </div>
               ) : (
-                <p className="p-3 text-center text-xs leading-5 text-zinc-500">Bookmarks will appear here when the document contains an outline.</p>
+                <BookmarksPanel
+                  bookmarks={bookmarks}
+                  loading={bookmarksLoading}
+                  onNavigate={jumpToPage}
+                />
               )}
             </div>
           </aside>
@@ -2071,7 +2568,11 @@ export default function App() {
               )}
             </div>
           ) : (
-            <div ref={workspaceRef} className="flex min-h-0 flex-1 flex-col items-center gap-6 overflow-auto p-8">
+            <div
+              ref={workspaceRef}
+              className="flex min-h-0 flex-1 flex-col items-center gap-6 overflow-auto p-8"
+              onScroll={(event) => setWorkspaceScrollTop(event.currentTarget.scrollTop)}
+            >
               {pages.map((page) => (
                 <VirtualizedPdfPage
                   key={page.pageNumber}
@@ -2188,6 +2689,7 @@ export default function App() {
       <StatusBar
         currentPage={currentPage}
         pageCount={pdfDocument?.numPages ?? 0}
+        selectedPageCount={selectedPageNumbers.length}
         width={currentPageDimensions?.width ?? null}
         height={currentPageDimensions?.height ?? null}
         fileSize={editor.bytes?.byteLength ?? 0}
