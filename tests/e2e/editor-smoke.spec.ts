@@ -188,7 +188,9 @@ test("loads, searches, rotates, annotates, and restores history", async ({
       'button[data-tooltip="Click a page to place and edit a text box"]'
     )
     .click();
-  await pageTwo.click({ position: { x: 180, y: 120 } });
+  const pageTwoAnnotationLayer = pageTwo.getByLabel("Annotation layer");
+  await expect(pageTwoAnnotationLayer).toBeVisible();
+  await pageTwoAnnotationLayer.click({ position: { x: 180, y: 120 } });
   const textInput = page.getByRole("textbox", { name: "Text annotation" });
   await expect(textInput).toHaveAttribute("placeholder", "Begin typing…");
   await textInput.fill("Regression note");
