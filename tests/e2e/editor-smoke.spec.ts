@@ -216,6 +216,9 @@ test("loads, searches, rotates, annotates, and restores history", async ({
   await expect(
     page.getByText("Edited regression note", { exact: true })
   ).toBeVisible();
+
+  await pageTwo.click({ position: { x: 400, y: 400 } });
+  await expect(annotationToolbar).toBeHidden();
 });
 
 test("toolbar does not overflow at the minimum window size", async ({

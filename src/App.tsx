@@ -782,6 +782,7 @@ function PageCanvas({
       data-page-mounted={page.pageNumber}
       className="relative shrink-0 bg-white shadow-2xl"
       aria-label={pageId === null ? undefined : `Page ${page.pageNumber}`}
+      onPointerDown={() => onSelectAnnotation(null)}
       style={{
         width: `${Math.ceil(viewport.width)}px`,
         height: `${Math.ceil(viewport.height)}px`
@@ -2068,7 +2069,8 @@ export default function App() {
       const saved = await savePdf(!sourcePath);
       if (!saved) return;
       allowWindowClose.current = true;
-      if (isTauri()) await getCurrentWindow().close();
+      setActiveDialog(null);
+      if (isTauri()) await getCurrentWindow().destroy();
     } finally {
       setDialogBusy(false);
     }
@@ -2078,7 +2080,7 @@ export default function App() {
     await clearRecovery(recoveryId).catch(() => undefined);
     allowWindowClose.current = true;
     setActiveDialog(null);
-    if (isTauri()) await getCurrentWindow().close();
+    if (isTauri()) await getCurrentWindow().destroy();
   }, [recoveryId]);
 
   const confirmOverwriteSave = useCallback(async () => {
