@@ -220,6 +220,10 @@ SovereignPDF is designed to process documents without transmitting them:
 Dependency installation and update checks performed by development tools are
 separate from the installed application's document-processing behavior.
 
+See the full [SovereignPDF Privacy Policy](PRIVACY.md) for details about local
+document access, recovery storage, user controls, and third-party distribution
+services.
+
 ## OCR policy
 
 OCR is bundled as a completely local component. After text extraction finishes,
