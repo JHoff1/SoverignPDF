@@ -141,7 +141,17 @@ function baseName(path: string) {
 }
 
 function errorMessage(cause: unknown, fallback: string) {
-  return cause instanceof Error ? cause.message : fallback;
+  if (cause instanceof Error && cause.message) return cause.message;
+  if (typeof cause === "string" && cause.trim()) return cause;
+  if (cause && typeof cause === "object") {
+    try {
+      const serialized = JSON.stringify(cause);
+      if (serialized && serialized !== "{}") return serialized;
+    } catch {
+      // Fall through to the context-specific message.
+    }
+  }
+  return fallback;
 }
 
 function cloneForPdfJs(bytes: Uint8Array) {
@@ -149,8 +159,8 @@ function cloneForPdfJs(bytes: Uint8Array) {
 }
 
 async function readLocalPdf(path: string) {
-  const bytes = await readFile(path);
-  return bytes.slice().buffer;
+  const response = await invoke<ArrayBuffer>("read_pdf_file", { path });
+  return response.slice(0);
 }
 
 async function writeLocalPdfAtomically(
@@ -880,7 +890,7 @@ export default function App() {
       try {
         await readAndLoadPdf(path);
       } catch (cause) {
-        const detail = cause instanceof Error ? cause.message : "The file could not be read.";
+        const detail = errorMessage(cause, "The file could not be read.");
         setError(`Could not open “${baseName(path)}”. ${detail}`);
       }
     };
@@ -907,7 +917,7 @@ export default function App() {
       const openedPath = openedPaths.find((value) => value.toLowerCase().includes(".pdf"));
       if (openedPath) await loadExternalPdf(openedPath);
     })().catch((cause) => {
-      const detail = cause instanceof Error ? cause.message : "The request could not be completed.";
+      const detail = errorMessage(cause, "The request could not be completed.");
       setError(`SovereignPDF could not process the file-open request. ${detail}`);
     });
 
@@ -931,7 +941,7 @@ export default function App() {
     try {
       await readAndLoadPdf(path);
     } catch (cause) {
-      const detail = cause instanceof Error ? cause.message : "The file could not be read.";
+      const detail = errorMessage(cause, "The file could not be read.");
       setError(`Could not open “${baseName(path)}”. ${detail}`);
     }
   }, [readAndLoadPdf]);

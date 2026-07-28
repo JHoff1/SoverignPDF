@@ -149,6 +149,34 @@ fn mark_window_document_open(app: tauri::AppHandle, window_label: String) {
     opened.occupied_windows.insert(window_label);
 }
 
+fn read_pdf_bytes(path: &Path) -> Result<Vec<u8>, String> {
+    if !path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+    {
+        return Err("Only PDF files can be opened.".into());
+    }
+    std::fs::read(path).map_err(|error| {
+        format!(
+            "The operating system could not read the selected PDF ({:?}): {error}",
+            error.kind()
+        )
+    })
+}
+
+#[tauri::command]
+fn read_pdf_file(app: tauri::AppHandle, path: String) -> Result<tauri::ipc::Response, String> {
+    let path = Path::new(&path);
+    if !app.fs_scope().is_allowed(path) {
+        return Err(
+            "SovereignPDF does not have permission to read this file. Move it to a local folder or choose it again with Open."
+                .into(),
+        );
+    }
+    read_pdf_bytes(path).map(tauri::ipc::Response::new)
+}
+
 #[tauri::command]
 fn open_default_apps_settings() -> Result<(), String> {
     #[cfg(target_os = "windows")]
@@ -294,6 +322,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             opened_pdf_paths,
             mark_window_document_open,
+            read_pdf_file,
             open_default_apps_settings,
             prepare_atomic_pdf_write,
             finish_atomic_pdf_write,
@@ -317,7 +346,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{atomic_temp_path, pdf_path_from_argument, replace_pdf_file};
+    use super::{atomic_temp_path, pdf_path_from_argument, read_pdf_bytes, replace_pdf_file};
     use std::{
         fs,
         path::Path,
@@ -334,6 +363,20 @@ mod tests {
     fn rejects_non_pdf_arguments() {
         assert!(pdf_path_from_argument("--verbose", Path::new("documents")).is_none());
         assert!(pdf_path_from_argument("notes.txt", Path::new("documents")).is_none());
+    }
+
+    #[test]
+    fn reads_pdf_paths_with_spaces_and_punctuation() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let folder = std::env::temp_dir().join(format!("sovereignpdf-read-test-{nonce}"));
+        fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("Gmail - Your order has shipped!.pdf");
+        fs::write(&path, b"%PDF-1.7 test").unwrap();
+        assert_eq!(read_pdf_bytes(&path).unwrap(), b"%PDF-1.7 test");
+        fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]
