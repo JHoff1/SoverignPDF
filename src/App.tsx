@@ -129,7 +129,10 @@ GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const WINDOW_BOUNDS_KEY = "sovereignpdf.window-bounds.v1";
 const SESSION_KEY = "sovereignpdf.last-session.v1";
+const GITHUB_REPOSITORY_URL = "https://github.com/JHoff1/SoverignPDF";
 const GITHUB_ISSUES_URL = "https://github.com/JHoff1/SoverignPDF/issues/new";
+const PRIVACY_POLICY_URL =
+  "https://github.com/JHoff1/SoverignPDF/blob/main/PRIVACY.md";
 
 type StoredSession = {
   sourcePath: string;
@@ -298,17 +301,26 @@ export default function App() {
   const pageSelectionAnchor = useRef(1);
   const sessionRestoreAttempted = useRef(false);
 
-  const reportIssue = async () => {
+  const openExternalProjectPage = async (
+    url: string,
+    failureMessage: string
+  ) => {
     try {
       if (isTauri()) {
-        await openUrl(GITHUB_ISSUES_URL);
+        await openUrl(url);
       } else {
-        window.open(GITHUB_ISSUES_URL, "_blank", "noopener,noreferrer");
+        window.open(url, "_blank", "noopener,noreferrer");
       }
     } catch (cause) {
-      setError(errorMessage(cause, "The GitHub issue page could not be opened."));
+      setError(errorMessage(cause, failureMessage));
     }
   };
+
+  const reportIssue = () =>
+    openExternalProjectPage(
+      GITHUB_ISSUES_URL,
+      "The GitHub issue page could not be opened."
+    );
 
   const copyErrorDetails = async () => {
     if (!error) return;
@@ -2346,6 +2358,14 @@ export default function App() {
           onRestoreRecovery={restoreRecoveryRevision}
           onDeleteRecovery={removeRecoveryRevision}
           onReportIssue={reportIssue}
+          onOpenPrivacyPolicy={() => openExternalProjectPage(
+            PRIVACY_POLICY_URL,
+            "The privacy policy could not be opened."
+          )}
+          onOpenRepository={() => openExternalProjectPage(
+            GITHUB_REPOSITORY_URL,
+            "The project repository could not be opened."
+          )}
           onClose={() => setActiveDialog(null)}
         />
       )}

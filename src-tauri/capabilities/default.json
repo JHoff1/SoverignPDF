@@ -22,6 +22,12 @@
       "allow": [
         {
           "url": "https://github.com/JHoff1/SoverignPDF/issues*"
+        },
+        {
+          "url": "https://github.com/JHoff1/SoverignPDF"
+        },
+        {
+          "url": "https://github.com/JHoff1/SoverignPDF/blob/main/PRIVACY.md"
         }
       ]
     }

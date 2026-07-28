@@ -146,6 +146,16 @@ test("fresh preferences use privacy-conscious save defaults", async ({ page }) =
   ).toBeChecked();
   await expect(page.getByText("Network access is disabled.")).toBeVisible();
   await expect(
+    page.getByRole("heading", { name: "About SovereignPDF" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Privacy policy" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Source code" })
+  ).toBeVisible();
+  await expect(page.getByText("AGPL-3.0")).toBeVisible();
+  await expect(
     page.getByRole("button", { name: "Report an issue on GitHub" })
   ).toBeVisible();
 });

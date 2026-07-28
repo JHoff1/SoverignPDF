@@ -9,7 +9,7 @@
     Name="jhoff1.SovereignPDF"
     Publisher="CN=1561B86F-CE73-4D7B-8F44-C60003C93D75"
     Version="__PACKAGE_VERSION__"
-    ProcessorArchitecture="x64" />
+    ProcessorArchitecture="__PROCESSOR_ARCHITECTURE__" />
 
   <Properties>
     <DisplayName>SovereignPDF</DisplayName>

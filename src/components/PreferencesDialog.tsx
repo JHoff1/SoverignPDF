@@ -1,4 +1,16 @@
-import { Bug, ExternalLink, FileCheck2, Monitor, Moon, Sun, WifiOff } from "lucide-react";
+import {
+  Bug,
+  ExternalLink,
+  FileCheck2,
+  Github,
+  Monitor,
+  Moon,
+  Scale,
+  ShieldCheck,
+  Sun,
+  WifiOff
+} from "lucide-react";
+import { version } from "../../package.json";
 import type { TextStyle } from "../editor/useDocumentEditor";
 import type { RecoverySnapshot } from "../recoveryStore";
 import type { AppPreferences } from "../preferences";
@@ -20,6 +32,8 @@ export function PreferencesDialog({
   onRestoreRecovery,
   onDeleteRecovery,
   onReportIssue,
+  onOpenPrivacyPolicy,
+  onOpenRepository,
   onClose
 }: {
   preferences: AppPreferences;
@@ -35,6 +49,8 @@ export function PreferencesDialog({
   onRestoreRecovery: (snapshot: RecoverySnapshot) => void;
   onDeleteRecovery: (snapshot: RecoverySnapshot) => void | Promise<void>;
   onReportIssue: () => void | Promise<void>;
+  onOpenPrivacyPolicy: () => void | Promise<void>;
+  onOpenRepository: () => void | Promise<void>;
   onClose: () => void;
 }) {
   const updatePreferences = (updates: Partial<AppPreferences>) =>
@@ -88,6 +104,55 @@ export function PreferencesDialog({
             checked={preferences.restoreSession}
             onChange={(restoreSession) => updatePreferences({ restoreSession })}
           />
+        </div>
+      </section>
+
+      <section className="mt-3 rounded-lg border border-blue-400/20 bg-blue-500/5 p-4">
+        <div className="flex items-start gap-3">
+          <img
+            src="/app-icon.png"
+            alt=""
+            aria-hidden="true"
+            className="h-12 w-12 shrink-0 rounded-xl shadow-lg"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h3 className="text-sm font-semibold text-zinc-100">
+                About SovereignPDF
+              </h3>
+              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-zinc-400">
+                Version {version}
+              </span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-zinc-400">
+              A free, open-source PDF editor that processes documents locally
+              without accounts, cloud uploads, analytics, or advertising.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-500/15 px-3 text-xs font-semibold text-blue-100 hover:bg-blue-500/25"
+                onClick={() => void onOpenPrivacyPolicy()}
+              >
+                <ShieldCheck size={14} />
+                Privacy policy
+                <ExternalLink size={12} />
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center gap-2 rounded-md bg-white/10 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/15"
+                onClick={() => void onOpenRepository()}
+              >
+                <Github size={14} />
+                Source code
+                <ExternalLink size={12} />
+              </button>
+              <span className="inline-flex h-9 items-center gap-2 rounded-md border border-white/10 px-3 text-xs font-medium text-zinc-400">
+                <Scale size={14} />
+                AGPL-3.0
+              </span>
+            </div>
+          </div>
         </div>
       </section>
 

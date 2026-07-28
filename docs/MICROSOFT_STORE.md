@@ -33,6 +33,16 @@ From the repository root:
 npm run store:msix
 ```
 
+To create the native Windows-on-ARM package:
+
+```powershell
+rustup target add aarch64-pc-windows-msvc
+npm run store:msix:arm64
+```
+
+The ARM64 build also requires the Visual Studio C++ ARM64 build tools. GitHub
+Actions installs the Rust target and builds both architectures automatically.
+
 The command performs a release build without creating the regular installers,
 generates the Store assets, packages the executable and PDF file association,
 verifies that the resulting package can be unpacked, and writes a SHA-256
@@ -41,7 +51,8 @@ checksum.
 Output is written under:
 
 ```text
-src-tauri/target/store/
+src-tauri/target/store/x64/
+src-tauri/target/store/arm64/
 ```
 
 The `.msix` file is the package to upload to Partner Center. It is intentionally
@@ -60,3 +71,35 @@ script converts the Tauri version automatically:
 ```
 
 Increment the project version before every Store update.
+
+## Store listing assets
+
+Customer-facing artwork is stored in `src-tauri/store/listing-assets/`.
+Validate its dimensions, transparency, and file size before uploading:
+
+```powershell
+npm run store:assets:validate
+```
+
+The Store screenshots use a generated demonstration document containing no
+real customer or developer information. Regenerate it with:
+
+```powershell
+npm run store:demo-pdf
+```
+
+The exact Partner Center field mapping and ready-to-paste listing copy are in
+[`STORE_LISTING.md`](STORE_LISTING.md).
+
+## Certification checks
+
+Before submission:
+
+1. Install the package on a clean Windows user profile.
+2. Run the Windows App Certification Kit against the installed package.
+3. Open a PDF through its file association.
+4. Verify Open, Save, Save As, Print, OCR, and offline operation.
+5. Confirm that uninstalling removes the app while leaving user-created PDFs
+   and backups untouched.
+6. Upload both architecture packages to the same Partner Center submission so
+   the Store can select the correct package for each device.

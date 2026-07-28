@@ -10,7 +10,10 @@
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
+    "store:assets:validate": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/validate-store-assets.ps1",
+    "store:demo-pdf": "node ./scripts/create-store-demo-pdf.mjs",
     "store:msix": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-msix.ps1",
+    "store:msix:arm64": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-msix.ps1 -Architecture arm64",
     "tauri": "tauri"
   },
   "dependencies": {

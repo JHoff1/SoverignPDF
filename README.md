@@ -183,12 +183,18 @@ The workflow creates a draft GitHub Release containing:
 - Windows NSIS and MSI installers
 - A macOS DMG
 - Linux DEB and AppImage packages
+- Microsoft Store x64 and ARM64 MSIX workflow artifacts
 - A `SHA256SUMS.txt` manifest covering every installer
 
 The workflow verifies all expected assets and publishes the release only after
 every platform build and checksum step succeeds. Verify a downloaded installer
 with `sha256sum -c SHA256SUMS.txt` on Linux, `shasum -a 256` on macOS, or
 `Get-FileHash -Algorithm SHA256` on Windows.
+
+Microsoft Store identity, packaging, listing copy, artwork, screenshots, and
+submission checks are documented in
+[`docs/MICROSOFT_STORE.md`](docs/MICROSOFT_STORE.md) and
+[`docs/STORE_LISTING.md`](docs/STORE_LISTING.md).
 
 ## Architecture
 
