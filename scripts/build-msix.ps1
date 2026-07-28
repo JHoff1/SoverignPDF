@@ -35,11 +35,11 @@ function Import-VisualStudioEnvironment {
         } else {
             "Desktop development with C++"
         }
-        throw (
+        throw ((
             "Visual Studio's {0} component is not installed. Open Visual " +
             "Studio Installer, modify Build Tools or Visual Studio, and add " +
-            "'{0}' before retrying." -f $componentLabel
-        )
+            "'{0}' before retrying."
+        ) -f $componentLabel)
     }
 
     $developerCommand = Join-Path -Path $installationPath -ChildPath (

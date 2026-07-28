@@ -14,6 +14,7 @@
     "store:demo-pdf": "node ./scripts/create-store-demo-pdf.mjs",
     "store:msix": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-msix.ps1",
     "store:msix:arm64": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-msix.ps1 -Architecture arm64",
+    "store:wack": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-store-package.ps1",
     "tauri": "tauri"
   },
   "dependencies": {

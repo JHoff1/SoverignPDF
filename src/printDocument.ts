@@ -1,7 +1,5 @@
-import {
-  getDocument,
-  type PDFDocumentProxy
-} from "pdfjs-dist/legacy/build/pdf.mjs";
+import type { PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { loadPdfRuntime } from "./lib/pdfRuntime";
 
 function escapeHtml(value: string) {
   return value
@@ -16,6 +14,7 @@ async function renderPrintPages(
   bytes?: Uint8Array,
   existingDocument?: PDFDocumentProxy
 ) {
+  const { getDocument } = await loadPdfRuntime();
   const document = existingDocument ??
     await getDocument({ data: new Uint8Array(bytes!).buffer }).promise;
   try {

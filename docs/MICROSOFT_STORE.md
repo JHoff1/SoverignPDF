@@ -43,6 +43,11 @@ npm run store:msix:arm64
 The ARM64 build also requires the Visual Studio C++ ARM64 build tools. GitHub
 Actions installs the Rust target and builds both architectures automatically.
 
+To build both packages on GitHub without creating a release, open **Actions →
+Validate Microsoft Store packages → Run workflow**. The workflow retains the
+x64 and ARM64 packages and their checksums as downloadable artifacts for 30
+days.
+
 The command performs a release build without creating the regular installers,
 generates the Store assets, packages the executable and PDF file association,
 verifies that the resulting package can be unpacked, and writes a SHA-256
@@ -92,6 +97,17 @@ The exact Partner Center field mapping and ready-to-paste listing copy are in
 [`STORE_LISTING.md`](STORE_LISTING.md).
 
 ## Certification checks
+
+The Windows App Certification Kit must run as administrator within an active
+Windows user session. After building the x64 package, open PowerShell with
+**Run as administrator**, change to the repository directory, and run:
+
+```powershell
+npm run store:wack
+```
+
+The certification report is written under
+`src-tauri/target/store/certification/`.
 
 Before submission:
 

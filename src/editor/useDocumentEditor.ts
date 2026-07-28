@@ -1,12 +1,13 @@
 import { useCallback, useMemo, useState } from "react";
-import {
-  PDFDocument,
-  StandardFonts,
-  degrees,
-  rgb,
-  type PDFPage
-} from "pdf-lib";
+import type { PDFDocument, PDFPage } from "pdf-lib";
 import { clonePlain, createLocalId } from "../localUtils";
+
+let pdfLibPromise: Promise<typeof import("pdf-lib")> | null = null;
+
+function loadPdfLib() {
+  pdfLibPromise ??= import("pdf-lib");
+  return pdfLibPromise;
+}
 
 export type Point = { x: number; y: number };
 export type TextFont = "helvetica" | "times" | "courier";
@@ -80,7 +81,10 @@ function cloneBytes(bytes: Uint8Array) {
   return new Uint8Array(bytes);
 }
 
-function colorFromHex(hex: string) {
+function colorFromHex(
+  hex: string,
+  rgb: typeof import("pdf-lib")["rgb"]
+) {
   const value = hex.replace("#", "");
   const parsed = Number.parseInt(value.length === 3
     ? value.split("").map((item) => item + item).join("")
@@ -97,7 +101,10 @@ function pointOnPage(page: PDFPage, point: Point) {
   return { x: point.x * width, y: height - point.y * height };
 }
 
-function standardFontFor(style: TextStyle) {
+function standardFontFor(
+  style: TextStyle,
+  StandardFonts: typeof import("pdf-lib")["StandardFonts"]
+) {
   if (style.fontFamily === "times") {
     if (style.bold && style.italic) return StandardFonts.TimesRomanBoldItalic;
     if (style.bold) return StandardFonts.TimesRomanBold;
@@ -120,6 +127,7 @@ export async function flattenPdf(
   source: Uint8Array,
   annotations: Annotation[]
 ) {
+  const { PDFDocument, StandardFonts, rgb } = await loadPdfLib();
   const pdf = await PDFDocument.load(source);
   const fonts = new Map<string, Awaited<ReturnType<typeof pdf.embedFont>>>();
 
@@ -129,7 +137,7 @@ export async function flattenPdf(
     const { width, height } = page.getSize();
 
     if (annotation.kind === "text") {
-      const fontName = standardFontFor(annotation);
+      const fontName = standardFontFor(annotation, StandardFonts);
       let font = fonts.get(fontName);
       if (!font) {
         font = await pdf.embedFont(fontName);
@@ -140,7 +148,7 @@ export async function flattenPdf(
         y: height - annotation.y * height - annotation.size,
         size: annotation.size,
         font,
-        color: colorFromHex(annotation.color)
+        color: colorFromHex(annotation.color, rgb)
       });
     } else if (annotation.kind === "pen" || annotation.kind === "highlight") {
       for (let index = 1; index < annotation.points.length; index += 1) {
@@ -148,7 +156,7 @@ export async function flattenPdf(
           start: pointOnPage(page, annotation.points[index - 1]),
           end: pointOnPage(page, annotation.points[index]),
           thickness: annotation.width,
-          color: colorFromHex(annotation.color),
+          color: colorFromHex(annotation.color, rgb),
           opacity: annotation.opacity,
           lineCap: 1
         });
@@ -229,6 +237,7 @@ export function useDocumentEditor() {
     transformAnnotations?: (items: Annotation[]) => Annotation[]
   ) => {
     if (!current) return;
+    const { PDFDocument } = await loadPdfLib();
     const pdf = await PDFDocument.load(current.bytes);
     await operation(pdf);
     const bytes = await pdf.save({ useObjectStreams: true });
@@ -242,7 +251,8 @@ export function useDocumentEditor() {
   }, [commit, current]);
 
   const rotate = useCallback((pageNumber: number, amount: number) =>
-    transformPdf("Rotate page", (pdf) => {
+    transformPdf("Rotate page", async (pdf) => {
+      const { degrees } = await loadPdfLib();
       const page = pdf.getPage(pageNumber - 1);
       page.setRotation(degrees((page.getRotation().angle + amount + 360) % 360));
     }), [transformPdf]);
@@ -250,7 +260,8 @@ export function useDocumentEditor() {
   const rotatePages = useCallback((pageNumbers: number[], amount: number) =>
     transformPdf(
       `Rotate ${pageNumbers.length} pages`,
-      (pdf) => {
+      async (pdf) => {
+        const { degrees } = await loadPdfLib();
         pageNumbers.forEach((pageNumber) => {
           const page = pdf.getPage(pageNumber - 1);
           if (!page) return;
@@ -300,6 +311,7 @@ export function useDocumentEditor() {
 
   const duplicatePages = useCallback(async (pageNumbers: number[]) => {
     if (!current) return;
+    const { PDFDocument } = await loadPdfLib();
     const selected = new Set(pageNumbers);
     const source = await PDFDocument.load(current.bytes);
     const output = await PDFDocument.create();
@@ -347,6 +359,7 @@ export function useDocumentEditor() {
 
   const reorderPages = useCallback(async (pageNumbers: number[], target: number) => {
     if (!current) return;
+    const { PDFDocument } = await loadPdfLib();
     const selected = [...new Set(pageNumbers)].sort((left, right) => left - right);
     if (!selected.length || selected.includes(target)) return;
     const source = await PDFDocument.load(current.bytes);
@@ -384,6 +397,7 @@ export function useDocumentEditor() {
 
   const merge = useCallback(async (otherBytes: Uint8Array) => {
     if (!current) return;
+    const { PDFDocument } = await loadPdfLib();
     const target = await PDFDocument.load(current.bytes);
     const source = await PDFDocument.load(otherBytes);
     const pages = await target.copyPages(source, source.getPageIndices());
@@ -399,6 +413,7 @@ export function useDocumentEditor() {
     documents: Array<{ bytes: Uint8Array; current: boolean }>
   ) => {
     if (!current || !documents.length) return;
+    const { PDFDocument } = await loadPdfLib();
     const output = await PDFDocument.create();
     let pagesBeforeCurrent = 0;
     let currentReached = false;
@@ -421,6 +436,7 @@ export function useDocumentEditor() {
 
   const extract = useCallback(async (pageNumbers: number[]) => {
     if (!current) return null;
+    const { PDFDocument } = await loadPdfLib();
     const source = await PDFDocument.load(current.bytes);
     const output = await PDFDocument.create();
     const pages = await output.copyPages(source, pageNumbers.map((page) => page - 1));

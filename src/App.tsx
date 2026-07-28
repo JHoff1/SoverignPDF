@@ -32,18 +32,12 @@ import {
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import {
-  GlobalWorkerOptions,
-  PasswordResponses,
-  Util,
-  getDocument,
-  type PDFDocumentProxy,
-  type PDFPageProxy
+import type {
+  PDFDocumentLoadingTask,
+  PDFDocumentProxy,
+  PDFPageProxy
 } from "pdfjs-dist/legacy/build/pdf.mjs";
-import pdfWorker from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url";
-import { PDFDocument } from "pdf-lib";
-import { createWorker, type Worker as TesseractWorker } from "tesseract.js";
-import { simd } from "wasm-feature-detect";
+import type { Worker as TesseractWorker } from "tesseract.js";
 import {
   useDocumentEditor,
   type Annotation,
@@ -82,6 +76,7 @@ import {
   friendlyOcrStatus,
   OcrStartupCanceledError
 } from "./lib/ocrStartup";
+import { loadPdfRuntime } from "./lib/pdfRuntime";
 import { PrintDialog } from "./components/PrintDialog";
 import { PageThumbnail } from "./components/PageThumbnail";
 import { SelectedAnnotationToolbar } from "./components/SelectedAnnotationToolbar";
@@ -124,8 +119,6 @@ import {
   type MergeCandidate
 } from "./components/MergeDialog";
 import { ExportSummaryDialog } from "./components/ExportSummaryDialog";
-
-GlobalWorkerOptions.workerSrc = pdfWorker;
 
 const WINDOW_BOUNDS_KEY = "sovereignpdf.window-bounds.v1";
 const SESSION_KEY = "sovereignpdf.last-session.v1";
@@ -196,6 +189,8 @@ async function rasterizeForSecureRedaction(
   bytes: Uint8Array,
   redactedPages: Set<number>
 ) {
+  const { PDFDocument } = await import("pdf-lib");
+  const { getDocument } = await loadPdfRuntime();
   const source = await getDocument({ data: cloneForPdfJs(bytes) }).promise;
   const editableSource = await PDFDocument.load(bytes);
   const output = await PDFDocument.create();
@@ -343,7 +338,7 @@ export default function App() {
   const lastRenderedBytes = useRef<Uint8Array | null>(null);
   const renderGeneration = useRef(0);
   const passwordUpdater = useRef<((password: string) => void) | null>(null);
-  const passwordLoadingTask = useRef<ReturnType<typeof getDocument> | null>(null);
+  const passwordLoadingTask = useRef<PDFDocumentLoadingTask | null>(null);
   const allowWindowClose = useRef(false);
   const dirtyRef = useRef(false);
   const ocrAttemptedBytes = useRef<Uint8Array | null>(null);
@@ -733,6 +728,7 @@ export default function App() {
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void (async () => {
+        const { Util } = await loadPdfRuntime();
         const extractedText = Array.from({ length: pages.length }, () => "");
         const extractedSpans = Array.from(
           { length: pages.length },
@@ -808,6 +804,7 @@ export default function App() {
   }, [editor.annotations, selectedAnnotationId]);
 
   const renderPdf = useCallback(async (data: Uint8Array) => {
+    const { getDocument, PasswordResponses } = await loadPdfRuntime();
     const generation = ++renderGeneration.current;
     setBusy(true);
     setLoadingStage("Reading document structure…");
@@ -1326,6 +1323,10 @@ export default function App() {
     let worker: TesseractWorker | null = null;
     let activePage = 0;
     try {
+      const [{ createWorker }, { simd }] = await Promise.all([
+        import("tesseract.js"),
+        import("wasm-feature-detect")
+      ]);
       const assetUrl = (path: string) => new URL(path, window.location.href).href;
       const supportsSimd = await simd();
       const createLocalWorker = (corePath: string) =>
@@ -1795,6 +1796,7 @@ export default function App() {
     name: string,
     current = false
   ): Promise<MergeCandidate> => {
+    const { getDocument } = await loadPdfRuntime();
     const document = await getDocument({ data: cloneForPdfJs(bytes) }).promise;
     const previews: string[] = [];
     for (
