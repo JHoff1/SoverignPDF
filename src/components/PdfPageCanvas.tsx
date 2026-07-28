@@ -42,6 +42,7 @@ export function PdfPageCanvas({
   annotations,
   activeTool,
   onAddAnnotation,
+  onTextFinished,
   textStyle,
   penStyle,
   highlightStyle,
@@ -60,6 +61,7 @@ export function PdfPageCanvas({
   annotations: Annotation[];
   activeTool: Tool;
   onAddAnnotation: (annotation: Annotation) => void;
+  onTextFinished: (id: string | null) => void;
   textStyle: TextStyle;
   penStyle: StrokeStyle;
   highlightStyle: StrokeStyle;
@@ -73,6 +75,7 @@ export function PdfPageCanvas({
   pageId?: string | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const textMeasureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
   const viewport = useMemo(() => page.getViewport({ scale }), [page, scale]);
@@ -109,15 +112,43 @@ export function PdfPageCanvas({
       };
     }
     if (annotation.kind === "text") {
+      textMeasureCanvasRef.current ??= window.document.createElement("canvas");
+      const context = textMeasureCanvasRef.current.getContext("2d");
+      const renderedFontSize = annotation.size * scale;
+      if (context) {
+        context.font = [
+          annotation.italic ? "italic" : "",
+          annotation.bold ? "700" : "400",
+          `${renderedFontSize}px`,
+          cssFontFamily(annotation.fontFamily)
+        ].filter(Boolean).join(" ");
+      }
+      const measuredWidth = Math.max(
+        ...annotation.text.split("\n").map((line) =>
+          context?.measureText(line || " ").width
+          ?? line.length * renderedFontSize * 0.56
+        )
+      );
+      const lineCount = Math.max(1, annotation.text.split("\n").length);
+      const selectionPadding = 10;
+      const x = Math.max(0, annotation.x - selectionPadding / viewport.width);
+      const y = Math.max(0, annotation.y - selectionPadding / viewport.height);
+      const right = Math.min(
+        1,
+        annotation.x + measuredWidth / viewport.width
+          + selectionPadding / viewport.width
+      );
+      const bottom = Math.min(
+        1,
+        annotation.y + renderedFontSize * lineCount / viewport.height
+          + selectionPadding / viewport.height
+      );
       return {
         id: annotation.id,
-        x: annotation.x,
-        y: annotation.y,
-        width: Math.min(
-          1 - annotation.x,
-          Math.max(0.035, annotation.text.length * annotation.size * 0.56 / Math.max(viewport.width / scale, 1))
-        ),
-        height: Math.max(0.018, annotation.size * 1.3 / Math.max(viewport.height / scale, 1))
+        x,
+        y,
+        width: Math.max(0.035, right - x),
+        height: Math.max(0.018, bottom - y)
       };
     }
     const xs = annotation.points.map((point) => point.x);
@@ -245,18 +276,61 @@ export function PdfPageCanvas({
     if (!editingText) return;
     const text = value.trim();
     if (text) {
+      const id = createLocalId();
+      textMeasureCanvasRef.current ??= window.document.createElement("canvas");
+      const context = textMeasureCanvasRef.current.getContext("2d");
+      const renderedFontSize = textStyle.size * scale;
+      if (context) {
+        context.font = [
+          textStyle.italic ? "italic" : "",
+          textStyle.bold ? "700" : "400",
+          `${renderedFontSize}px`,
+          cssFontFamily(textStyle.fontFamily)
+        ].filter(Boolean).join(" ");
+      }
+      const renderedWidth = Math.max(
+        ...text.split("\n").map((line) =>
+          context?.measureText(line || " ").width
+          ?? line.length * renderedFontSize * 0.56
+        )
+      );
+      const lineCount = Math.max(1, text.split("\n").length);
+      const edgePadding = 4;
       onAddAnnotation({
-        id: createLocalId(),
+        id,
         kind: "text",
         page: page.pageNumber,
-        x: editingText.x,
-        y: editingText.y,
+        x: Math.min(
+          editingText.x,
+          Math.max(0, 1 - (renderedWidth + edgePadding) / viewport.width)
+        ),
+        y: Math.min(
+          editingText.y,
+          Math.max(
+            0,
+            1 - (renderedFontSize * lineCount + edgePadding) / viewport.height
+          )
+        ),
         text,
         ...textStyle
       });
+      onSelectAnnotation(id);
+      onTextFinished(id);
+    } else {
+      onTextFinished(null);
     }
     setEditingText(null);
-  }, [editingText, onAddAnnotation, page.pageNumber, textStyle]);
+  }, [
+    editingText,
+    onAddAnnotation,
+    onSelectAnnotation,
+    onTextFinished,
+    page.pageNumber,
+    scale,
+    textStyle,
+    viewport.height,
+    viewport.width
+  ]);
 
   const beginImageGesture = useCallback((
     event: ReactPointerEvent<HTMLElement>,
@@ -529,6 +603,7 @@ export function PdfPageCanvas({
             <div
               key={`annotation-controls-${annotation.id}`}
               data-annotation-kind={annotation.kind}
+              data-annotation-id={annotation.id}
               className={`absolute ${
                 activeTool === "select" ? "pointer-events-auto cursor-move" : "pointer-events-none"
               } ${
@@ -556,7 +631,7 @@ export function PdfPageCanvas({
                     type="button"
                     aria-label={`Delete selected ${annotation.kind}`}
                     data-tooltip={`Delete ${annotation.kind}`}
-                    className="pointer-events-auto absolute -right-3 -top-3 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-white bg-red-600 text-white shadow-lg hover:bg-red-500"
+                    className="pointer-events-auto absolute -right-2.5 -top-2.5 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-white bg-red-600 text-white shadow-lg hover:bg-red-500"
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => {
                       event.stopPropagation();
@@ -570,7 +645,7 @@ export function PdfPageCanvas({
                     role="button"
                     aria-label={`Resize selected ${annotation.kind}`}
                     data-tooltip={`Drag to resize ${annotation.kind}`}
-                    className="pointer-events-auto absolute -bottom-2 -right-2 h-4 w-4 cursor-nwse-resize rounded-sm border-2 border-white bg-orange-500 shadow"
+                    className="pointer-events-auto absolute -bottom-1.5 -right-1.5 h-3.5 w-3.5 cursor-nwse-resize rounded-sm border-2 border-white bg-orange-500 shadow"
                     onPointerDown={(event) => beginAnnotationGesture(event, annotation, "resize")}
                     onPointerMove={moveAnnotationGesture}
                     onPointerUp={finishAnnotationGesture}
@@ -635,6 +710,7 @@ export function PdfPageCanvas({
         {annotations.map((annotation) => annotation.kind === "text" && (
           <span
             key={annotation.id}
+            data-annotation-text={annotation.id}
             className="absolute whitespace-pre leading-none"
             style={{
               left: `${annotation.x * 100}%`,

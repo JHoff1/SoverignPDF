@@ -11,11 +11,22 @@ use tauri_plugin_fs::FsExt;
 #[derive(Default)]
 struct OpenedPdfState {
     pending_by_window: HashMap<String, String>,
+    pending_recovery_by_window: HashMap<String, String>,
     occupied_windows: HashSet<String>,
     next_window_id: u64,
 }
 
 struct OpenedPdfs(Mutex<OpenedPdfState>);
+
+fn reserve_recovery_window(opened: &mut OpenedPdfState, recovery_id: String) -> String {
+    opened.next_window_id += 1;
+    let label = format!("document-{}", opened.next_window_id);
+    opened
+        .pending_recovery_by_window
+        .insert(label.clone(), recovery_id);
+    opened.occupied_windows.insert(label.clone());
+    label
+}
 
 fn pdf_path_from_argument(argument: &str, cwd: &Path) -> Option<PathBuf> {
     let path = if argument.to_ascii_lowercase().starts_with("file:") {
@@ -102,6 +113,34 @@ fn create_pdf_window(app: &tauri::AppHandle, path: String) -> tauri::Result<()> 
     result.map(|_| ())
 }
 
+#[tauri::command]
+fn create_recovery_window(app: tauri::AppHandle, recovery_id: String) -> Result<String, String> {
+    if recovery_id.trim().is_empty() {
+        return Err("The recovery snapshot identifier is missing.".into());
+    }
+    let label = {
+        let opened_state = app.state::<OpenedPdfs>();
+        let mut opened = opened_state.0.lock().unwrap();
+        reserve_recovery_window(&mut opened, recovery_id)
+    };
+
+    let result = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+        .title("Recovered document — SovereignPDF")
+        .inner_size(1280.0, 820.0)
+        .min_inner_size(900.0, 600.0)
+        .maximized(true)
+        .build();
+
+    if let Err(error) = result {
+        let opened_state = app.state::<OpenedPdfs>();
+        let mut opened = opened_state.0.lock().unwrap();
+        opened.pending_recovery_by_window.remove(&label);
+        opened.occupied_windows.remove(&label);
+        return Err(error.to_string());
+    }
+    Ok(label)
+}
+
 fn open_startup_pdfs(app: &tauri::AppHandle, paths: Vec<String>) {
     let mut paths = paths.into_iter();
     if let Some(path) = paths.next() {
@@ -142,10 +181,22 @@ fn opened_pdf_paths(app: tauri::AppHandle, window_label: String) -> Vec<String> 
 }
 
 #[tauri::command]
+fn opened_recovery_id(app: tauri::AppHandle, window_label: String) -> Option<String> {
+    app.state::<OpenedPdfs>()
+        .0
+        .lock()
+        .unwrap()
+        .pending_recovery_by_window
+        .get(&window_label)
+        .cloned()
+}
+
+#[tauri::command]
 fn mark_window_document_open(app: tauri::AppHandle, window_label: String) {
     let opened_state = app.state::<OpenedPdfs>();
     let mut opened = opened_state.0.lock().unwrap();
     opened.pending_by_window.remove(&window_label);
+    opened.pending_recovery_by_window.remove(&window_label);
     opened.occupied_windows.insert(window_label);
 }
 
@@ -333,6 +384,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             opened_pdf_paths,
+            opened_recovery_id,
+            create_recovery_window,
             mark_window_document_open,
             read_pdf_file,
             open_default_apps_settings,
@@ -358,7 +411,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{atomic_temp_path, pdf_path_from_argument, read_pdf_bytes, replace_pdf_file};
+    use super::{
+        atomic_temp_path, pdf_path_from_argument, read_pdf_bytes, replace_pdf_file,
+        reserve_recovery_window, OpenedPdfState,
+    };
     use std::{
         fs,
         path::Path,
@@ -408,6 +464,30 @@ mod tests {
         assert_eq!(fs::read(&target).unwrap(), b"replacement");
         assert!(!temporary.exists());
         fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn recovery_window_does_not_replace_an_explicitly_opened_pdf() {
+        let mut opened = OpenedPdfState::default();
+        opened
+            .pending_by_window
+            .insert("main".into(), "C:\\Documents\\requested.pdf".into());
+        opened.occupied_windows.insert("main".into());
+
+        let recovery_window = reserve_recovery_window(&mut opened, "main".into());
+
+        assert_eq!(recovery_window, "document-1");
+        assert_eq!(
+            opened.pending_by_window.get("main").map(String::as_str),
+            Some("C:\\Documents\\requested.pdf")
+        );
+        assert_eq!(
+            opened
+                .pending_recovery_by_window
+                .get("document-1")
+                .map(String::as_str),
+            Some("main")
+        );
     }
 
     #[test]

@@ -83,8 +83,8 @@ export function PreferencesDialog({
         </p>
         <div className="mt-3 border-t border-white/10 pt-3">
           <PreferenceCheckbox
-            label="Restore the previous session"
-            description="Reopen the last local PDF and restore its page, scroll position, zoom, sidebar, and selected tool. Disable this to forget the session."
+            label="Restore interrupted sessions"
+            description="Reopen your document after a crash, forced shutdown, or other interrupted session. Documents closed normally are not reopened."
             checked={preferences.restoreSession}
             onChange={(restoreSession) => updatePreferences({ restoreSession })}
           />

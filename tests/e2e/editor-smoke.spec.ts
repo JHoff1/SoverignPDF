@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 
@@ -49,6 +49,72 @@ async function largePdf(pageCount = 120) {
   return Buffer.from(await pdf.save());
 }
 
+async function seedRecoverySnapshot(
+  page: Page,
+  {
+    corrupt = false,
+    fileName = "recovered-choice.pdf",
+    sourcePath = "C:\\Unavailable\\recovered-choice.pdf"
+  }: {
+    corrupt?: boolean;
+    fileName?: string;
+    sourcePath?: string | null;
+  } = {}
+) {
+  const encodedPdf = (await syntheticPdf()).toString("base64");
+  await page.evaluate(async ({ corruptValue, encoded, name, path }) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("sovereignpdf-local-recovery", 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("snapshots")) {
+          request.result.createObjectStore("snapshots", { keyPath: "id" });
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const bytes = corruptValue
+      ? "invalid recovery bytes"
+      : Uint8Array.from(atob(encoded), (character) =>
+          character.charCodeAt(0)
+        ).buffer;
+    const snapshot = {
+      id: "browser-main",
+      fileName: name,
+      sourcePath: path,
+      bytes,
+      annotations: [{
+        id: "recovered-text",
+        kind: "text",
+        page: 1,
+        x: 0.2,
+        y: 0.2,
+        text: "Recovered local note",
+        size: 18,
+        color: "#222222",
+        fontFamily: "helvetica",
+        bold: false,
+        italic: false
+      }],
+      updatedAt: Date.now()
+    };
+    await new Promise<void>((resolve, reject) => {
+      const request = db
+        .transaction("snapshots", "readwrite")
+        .objectStore("snapshots")
+        .put({ id: "browser-main", revisions: [snapshot] });
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+  }, {
+    corruptValue: corrupt,
+    encoded: encodedPdf,
+    name: fileName,
+    path: sourcePath
+  });
+}
+
 test("fresh preferences use privacy-conscious save defaults", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Preferences" }).click();
@@ -70,7 +136,7 @@ test("fresh preferences use privacy-conscious save defaults", async ({ page }) =
   ).toBeChecked();
   await expect(
     page.getByRole("checkbox", {
-      name: /Restore the previous session/
+      name: /Restore interrupted sessions/
     })
   ).toBeChecked();
   await expect(
@@ -82,6 +148,22 @@ test("fresh preferences use privacy-conscious save defaults", async ({ page }) =
   await expect(
     page.getByRole("button", { name: "Report an issue on GitHub" })
   ).toBeVisible();
+});
+
+test("forgets a completed session when a clean window closes", async ({ page }) => {
+  await page.goto("/");
+  const sessionKey = "sovereignpdf.last-session.v1";
+  await page.evaluate((key) => {
+    window.localStorage.setItem(key, JSON.stringify({
+      sourcePath: "C:\\Documents\\finished.pdf",
+      fileName: "finished.pdf"
+    }));
+    window.dispatchEvent(new Event("beforeunload", { cancelable: true }));
+  }, sessionKey);
+
+  await expect.poll(
+    () => page.evaluate((key) => window.localStorage.getItem(key), sessionKey)
+  ).toBeNull();
 });
 
 test("shows a visible error when a selected PDF cannot be parsed", async ({ page }) => {
@@ -227,6 +309,13 @@ test("loads, searches, rotates, annotates, and restores history", async ({
   await textInput.fill("Regression note");
   await textInput.press("Enter");
   await expect(page.getByText("Regression note", { exact: true })).toBeVisible();
+  await expect(pageTwoAnnotationLayer).toHaveAttribute(
+    "data-active-tool",
+    "select"
+  );
+  await expect(
+    page.getByRole("region", { name: "Edit selected text annotation" })
+  ).toBeVisible();
 
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(
@@ -236,7 +325,26 @@ test("loads, searches, rotates, annotates, and restores history", async ({
   await expect(page.getByText("Regression note", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Select" }).click();
-  await page.locator('[data-annotation-kind="text"]').click();
+  const textSelectionBox = page.locator('[data-annotation-kind="text"]');
+  await textSelectionBox.click();
+  const textBoxSpacing = await textSelectionBox.evaluate((selection) => {
+    const id = selection.getAttribute("data-annotation-id");
+    const text = document.querySelector(`[data-annotation-text="${id}"]`);
+    if (!text) return null;
+    const selectionBounds = selection.getBoundingClientRect();
+    const textBounds = text.getBoundingClientRect();
+    return {
+      top: textBounds.top - selectionBounds.top,
+      right: selectionBounds.right - textBounds.right,
+      bottom: selectionBounds.bottom - textBounds.bottom,
+      left: textBounds.left - selectionBounds.left
+    };
+  });
+  expect(textBoxSpacing).not.toBeNull();
+  expect(textBoxSpacing!.top).toBeGreaterThanOrEqual(7);
+  expect(textBoxSpacing!.right).toBeGreaterThanOrEqual(7);
+  expect(textBoxSpacing!.bottom).toBeGreaterThanOrEqual(7);
+  expect(textBoxSpacing!.left).toBeGreaterThanOrEqual(7);
   const annotationToolbar = page.getByRole("region", {
     name: "Edit selected text annotation"
   });
@@ -275,6 +383,83 @@ test("uses a dual-contrast cursor for markup tools", async ({ page }) => {
   await expect.poll(async () =>
     annotationLayer.evaluate((element) => getComputedStyle(element).cursor)
   ).toContain("data:image/svg+xml");
+});
+
+test("handles completed, canceled, styled, and page-edge text placement", async ({
+  page
+}) => {
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "text-placement.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+  const pageOne = page.locator('[aria-label="Page 1"]');
+  const annotationLayer = pageOne.getByLabel("Annotation layer");
+  await expect(annotationLayer).toBeVisible();
+
+  const textTool = page.locator(
+    'button[data-tooltip="Click a page to place and edit a text box"]'
+  );
+  await textTool.click();
+  await page.getByRole("button", { name: "Bold" }).click();
+  await page.getByRole("button", { name: "Italic" }).click();
+  const pageBounds = await pageOne.boundingBox();
+  expect(pageBounds).not.toBeNull();
+  await annotationLayer.click({
+    position: {
+      x: (pageBounds?.width ?? 500) - 8,
+      y: (pageBounds?.height ?? 700) - 8
+    }
+  });
+  const edgeInput = page.getByRole("textbox", { name: "Text annotation" });
+  await edgeInput.fill("Wide styled edge text");
+  await edgeInput.press("Enter");
+  await expect(annotationLayer).toHaveAttribute("data-active-tool", "select");
+  const styledText = page.locator('[data-annotation-text]').filter({
+    hasText: "Wide styled edge text"
+  });
+  await expect(styledText).toHaveCSS("font-weight", "700");
+  await expect(styledText).toHaveCSS("font-style", "italic");
+  const containedAtEdge = await styledText.evaluate((element) => {
+    const pageElement = element.closest('[aria-label^="Page "]');
+    if (!pageElement) return false;
+    const textBounds = element.getBoundingClientRect();
+    const bounds = pageElement.getBoundingClientRect();
+    return (
+      textBounds.right <= bounds.right + 0.5 &&
+      textBounds.bottom <= bounds.bottom + 0.5
+    );
+  });
+  expect(containedAtEdge).toBe(true);
+
+  await textTool.click();
+  await annotationLayer.click({ position: { x: 140, y: 140 } });
+  const blurInput = page.getByRole("textbox", { name: "Text annotation" });
+  await blurInput.fill("Finish by clicking away");
+  await page.getByRole("button", { name: "Preferences" }).click();
+  await expect(
+    page.getByText("Finish by clicking away", { exact: true })
+  ).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await expect(annotationLayer).toHaveAttribute("data-active-tool", "select");
+
+  await textTool.click();
+  await annotationLayer.click({ position: { x: 180, y: 180 } });
+  const canceledInput = page.getByRole("textbox", { name: "Text annotation" });
+  await canceledInput.fill("Canceled text");
+  await canceledInput.press("Escape");
+  await expect(page.getByText("Canceled text", { exact: true })).toHaveCount(0);
+  await expect(annotationLayer).toHaveAttribute("data-active-tool", "select");
+
+  await textTool.click();
+  await annotationLayer.click({ position: { x: 220, y: 220 } });
+  const emptyInput = page.getByRole("textbox", { name: "Text annotation" });
+  await emptyInput.press("Enter");
+  await expect(annotationLayer).toHaveAttribute("data-active-tool", "select");
+  await expect(page.getByRole("textbox", { name: "Text annotation" })).toHaveCount(0);
 });
 
 test("aligns text formatting controls beneath the Markup toolbar group", async ({
@@ -668,7 +853,93 @@ test("protects unsaved work and writes a local recovery snapshot", async ({
   expect(closeWasPrevented).toBe(true);
 });
 
-test("starts offline OCR in the background for an image-only PDF", async ({
+test("dismisses recovery while keeping it available in Preferences", async ({
+  page
+}) => {
+  await page.goto("/");
+  await seedRecoverySnapshot(page);
+  await page.reload();
+  const recovery = page.getByRole("dialog", {
+    name: "Recover unsaved work?"
+  });
+  await expect(recovery).toBeVisible();
+  await recovery.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Preferences" }).click();
+  await expect(
+    page.getByRole("dialog").getByText("recovered-choice.pdf", {
+      exact: true
+    })
+  ).toBeVisible();
+});
+
+test("discards a recovery snapshot and does not offer it again", async ({
+  page
+}) => {
+  await page.goto("/");
+  await seedRecoverySnapshot(page);
+  await page.reload();
+  const recovery = page.getByRole("dialog", {
+    name: "Recover unsaved work?"
+  });
+  await recovery.getByRole("button", { name: "Discard snapshot" }).click();
+  await expect(recovery).toBeHidden();
+  await page.reload();
+  await expect(
+    page.getByRole("dialog", { name: "Recover unsaved work?" })
+  ).toHaveCount(0);
+});
+
+test("recovers from local bytes when the original source file is unavailable", async ({
+  page
+}) => {
+  await page.goto("/");
+  await seedRecoverySnapshot(page, {
+    sourcePath: "Z:\\Missing\\original.pdf"
+  });
+  await page.reload();
+  await page.getByRole("dialog", {
+    name: "Recover unsaved work?"
+  }).getByRole("button", { name: "Recover" }).click();
+  await expect(
+    page.getByText("Recovered local note", { exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("contentinfo", { name: "Document status" })
+  ).toContainText("Unsaved changes");
+});
+
+test("reports a corrupt recovery without deleting it", async ({ page }) => {
+  await page.goto("/");
+  await seedRecoverySnapshot(page, { corrupt: true });
+  await page.reload();
+  await expect(page.getByRole("alert")).toContainText(
+    "recovery snapshot was found but its document data is invalid"
+  );
+  await expect(
+    page.getByRole("dialog", { name: "Recover unsaved work?" })
+  ).toHaveCount(0);
+  await page.getByRole("alert").getByRole("button", {
+    name: "Dismiss error message"
+  }).click();
+  await page.getByRole("button", { name: "Preferences" }).click();
+  await expect(
+    page.getByRole("dialog").getByText("recovered-choice.pdf", {
+      exact: true
+    })
+  ).toBeVisible();
+});
+
+test("does not show recovery UI when no snapshot exists", async ({ page }) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("dialog", { name: "Recover unsaved work?" })
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("status", { name: "Recovered work available" })
+  ).toHaveCount(0);
+});
+
+test("finishes offline OCR in the background for an image-only PDF", async ({
   page
 }) => {
   test.setTimeout(90_000);
@@ -689,6 +960,52 @@ test("starts offline OCR in the background for an image-only PDF", async ({
   const status = page.getByRole("status", { name: "Background OCR status" });
   await expect(status).toBeVisible({ timeout: 20_000 });
   await expect(status).toContainText(
-    /Loading local OCR engine|initializing tesseract|Recognizing page|OCR complete/
+    /Loading (accelerated )?offline OCR engine|Initializing offline OCR engine|Recognizing page|OCR complete/
   );
+  await expect(status).toContainText(/OCR complete/, { timeout: 60_000 });
+  await expect(status.locator("button")).toHaveAttribute(
+    "data-tooltip",
+    "Dismiss OCR status"
+  );
+});
+
+test("falls back from SIMD OCR without making external network requests", async ({
+  page
+}) => {
+  test.setTimeout(90_000);
+  const requestedUrls: string[] = [];
+  page.on("request", (request) => requestedUrls.push(request.url()));
+  await page.route(
+    "**/ocr/core/tesseract-core-simd-lstm.wasm.js",
+    (route) => route.abort("failed")
+  );
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "ocr-fallback.pdf",
+    mimeType: "application/pdf",
+    buffer: await imageOnlyPdf()
+  });
+
+  const status = page.getByRole("status", {
+    name: "Background OCR status"
+  });
+  await expect(status).toContainText(/OCR complete/, { timeout: 60_000 });
+  expect(
+    requestedUrls.some((url) =>
+      url.includes("tesseract-core-simd-lstm.wasm.js")
+    )
+  ).toBe(true);
+  expect(
+    requestedUrls.some((url) =>
+      url.includes("tesseract-core-lstm.wasm.js")
+    )
+  ).toBe(true);
+  const externalOcrRequests = requestedUrls.filter((url) => {
+    if (!url.includes("ocr") && !url.includes("tesseract")) return false;
+    const parsed = new URL(url);
+    return !["127.0.0.1", "localhost"].includes(parsed.hostname);
+  });
+  expect(externalOcrRequests).toEqual([]);
 });

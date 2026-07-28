@@ -68,15 +68,27 @@ import {
   saveRecovery,
   type RecoverySnapshot
 } from "./recoveryStore";
+import {
+  isUsableRecoverySnapshot,
+  migrateRecoverySnapshot,
+  requestRecoveryWindow,
+  recoveryStartupAction
+} from "./recoveryStartup";
 import { iconButton } from "./components/ToolbarDropdown";
 import { printPdfPages } from "./printDocument";
 import { OcrStatus, SearchPanel } from "./components/SearchPanels";
+import {
+  awaitOcrStartup,
+  friendlyOcrStatus,
+  OcrStartupCanceledError
+} from "./lib/ocrStartup";
 import { PrintDialog } from "./components/PrintDialog";
 import { PageThumbnail } from "./components/PageThumbnail";
 import { SelectedAnnotationToolbar } from "./components/SelectedAnnotationToolbar";
 import { VirtualizedPdfPage } from "./components/VirtualizedPdfPage";
 import { EditorToolbar } from "./components/EditorToolbar";
 import { PdfPageCanvas } from "./components/PdfPageCanvas";
+import { RecoveryAvailableNotice } from "./components/RecoveryAvailableNotice";
 import {
   PreferencesDialog,
   type DesktopPlatform
@@ -275,6 +287,8 @@ export default function App() {
   const [formsFlattened, setFormsFlattened] = useState(false);
   const [metadataSanitized, setMetadataSanitized] = useState(false);
   const [pendingRecovery, setPendingRecovery] = useState<RecoverySnapshot | null>(null);
+  const [deferredRecovery, setDeferredRecovery] = useState<RecoverySnapshot | null>(null);
+  const [recoveryActionBusy, setRecoveryActionBusy] = useState(false);
   const [recoverySnapshots, setRecoverySnapshots] = useState<RecoverySnapshot[]>([]);
   const [recoveryNotice, setRecoveryNotice] = useState("");
   const browserFileInput = useRef<HTMLInputElement>(null);
@@ -358,17 +372,102 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     refreshRecoverySnapshots();
-    void readRecovery(recoveryId).then((snapshot) => {
-      if (cancelled || !snapshot || editor.bytes) return;
+    void (async () => {
+      let sourceRecoveryId = recoveryId;
+      let requestedRecoveryWindow = false;
+      let explicitPdfPending = false;
+      if (isTauri()) {
+        const [requestedId, openedPaths] = await Promise.all([
+          invoke<string | null>("opened_recovery_id", {
+            windowLabel: recoveryId
+          }),
+          invoke<string[]>("opened_pdf_paths", {
+            windowLabel: recoveryId
+          })
+        ]);
+        if (requestedId) {
+          sourceRecoveryId = requestedId;
+          requestedRecoveryWindow = true;
+        }
+        explicitPdfPending = openedPaths.some((path) =>
+          path.toLowerCase().endsWith(".pdf")
+        );
+      }
+
+      let snapshot: RecoverySnapshot | undefined;
+      try {
+        snapshot = await readRecovery(sourceRecoveryId);
+      } catch {
+        if (requestedRecoveryWindow) {
+          setError(
+            "The requested recovery snapshot could not be read. It remains stored locally so you can retry from Preferences."
+          );
+        }
+        return;
+      }
+      if (cancelled) return;
+      if (snapshot && !isUsableRecoverySnapshot(snapshot)) {
+        setError(
+          "A local recovery snapshot was found but its document data is invalid. The snapshot has been kept for manual review or deletion in Preferences."
+        );
+        return;
+      }
+      const recoveryAction = recoveryStartupAction({
+        hasSnapshot: Boolean(snapshot),
+        requestedRecoveryWindow,
+        explicitPdfPending,
+        documentOpen: Boolean(editor.bytes)
+      });
+      if (!snapshot || recoveryAction === "none") return;
+
+      if (recoveryAction === "restore-requested-window") {
+        const migrationCompleted = await migrateRecoverySnapshot({
+          snapshot,
+          targetId: recoveryId,
+          save: saveRecovery,
+          clear: clearRecovery
+        });
+        if (cancelled) return;
+        editor.restore(new Uint8Array(snapshot.bytes), snapshot.annotations);
+        setFileName(snapshot.fileName);
+        setSourcePath(snapshot.sourcePath);
+        setCurrentPage(1);
+        setSelectedPage(1);
+        setSelectedPages(new Set([1]));
+        setSuccessMessage(
+          !migrationCompleted
+            ? "Your recovered work opened. The original recovery snapshot was kept because local cleanup could not be completed."
+            : "Your locally recovered unsaved work opened in a new window."
+        );
+        void invoke("mark_window_document_open", {
+          windowLabel: recoveryId
+        });
+        void getCurrentWindow().setTitle(
+          `${snapshot.fileName} — SovereignPDF`
+        );
+        refreshRecoverySnapshots();
+        return;
+      }
+
+      if (recoveryAction === "defer-for-explicit-pdf") {
+        setPendingRecovery(null);
+        setDeferredRecovery(snapshot);
+        return;
+      }
       setPendingRecovery(snapshot);
       setActiveDialog("recovery");
-    }).catch(() => {
+    })().catch(() => {
       // Recovery is best-effort and must never prevent the editor from opening.
     });
     return () => {
       cancelled = true;
     };
-  }, [editor.bytes, recoveryId, refreshRecoverySnapshots]);
+  }, [
+    editor.bytes,
+    editor.restore,
+    recoveryId,
+    refreshRecoverySnapshots
+  ]);
 
   useEffect(() => {
     if (!editor.isDirty || !editor.bytes) return;
@@ -404,8 +503,14 @@ export default function App() {
   }, [recoveryNotice]);
 
   useEffect(() => {
+    const forgetCompletedSession = () => {
+      window.localStorage.removeItem(SESSION_KEY);
+    };
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!dirtyRef.current || allowWindowClose.current) return;
+      if (!dirtyRef.current || allowWindowClose.current) {
+        forgetCompletedSession();
+        return;
+      }
       event.preventDefault();
       event.returnValue = "";
     };
@@ -416,7 +521,10 @@ export default function App() {
     let dispose: (() => void) | undefined;
     let cancelled = false;
     void getCurrentWindow().onCloseRequested((event) => {
-      if (!dirtyRef.current || allowWindowClose.current) return;
+      if (!dirtyRef.current || allowWindowClose.current) {
+        forgetCompletedSession();
+        return;
+      }
       event.preventDefault();
       setActiveDialog("unsaved-close");
     }).then((unlisten) => {
@@ -1201,29 +1309,47 @@ export default function App() {
 
     setOcrRunning(true);
     setOcrProgress(0);
-    setOcrStatus("Loading local OCR engine…");
+    setOcrStatus("Loading offline OCR engine…");
     ocrCancelRequested.current = false;
     let worker: TesseractWorker | null = null;
     let activePage = 0;
     try {
       const assetUrl = (path: string) => new URL(path, window.location.href).href;
       const supportsSimd = await simd();
-      worker = await createWorker("eng", 1, {
-        workerPath: assetUrl("ocr/worker.min.js"),
-        corePath: assetUrl(
-          supportsSimd
-            ? "ocr/core/tesseract-core-simd-lstm.js"
-            : "ocr/core/tesseract-core-lstm.js"
-        ),
-        langPath: assetUrl("ocr/lang"),
-        cacheMethod: "none",
-        logger: (message) => {
-          if (typeof message.progress === "number") {
-            setOcrProgress((activePage + message.progress) / pageIndexes.length);
+      const createLocalWorker = (corePath: string) =>
+        awaitOcrStartup({
+          start: () => createWorker("eng", 1, {
+            // Keep every OCR runtime asset together under one local directory.
+            workerPath: assetUrl("ocr/core/worker.min.js"),
+            corePath: assetUrl(corePath),
+            langPath: assetUrl("ocr/lang"),
+            cacheMethod: "none",
+            logger: (message) => {
+              if (typeof message.progress === "number") {
+                setOcrProgress((activePage + message.progress) / pageIndexes.length);
+              }
+              if (message.status) setOcrStatus(friendlyOcrStatus(message.status));
+            }
+          }),
+          timeoutMs: 15_000,
+          isCanceled: () => ocrCancelRequested.current,
+          dispose: async (lateWorker) => {
+            await lateWorker.terminate().catch(() => undefined);
           }
-          if (message.status) setOcrStatus(message.status);
+        });
+
+      if (supportsSimd) {
+        setOcrStatus("Loading accelerated offline OCR engine…");
+        try {
+          worker = await createLocalWorker("ocr/core/tesseract-core-simd-lstm.wasm.js");
+        } catch (cause) {
+          if (cause instanceof OcrStartupCanceledError) throw cause;
+          setOcrStatus("Accelerated OCR unavailable; loading compatibility engine…");
         }
-      });
+      }
+      if (!worker) {
+        worker = await createLocalWorker("ocr/core/tesseract-core-lstm.wasm.js");
+      }
       ocrWorker.current = worker;
 
       const recognized = Array.from({ length: pages.length }, (_, index) => ocrText[index] ?? "");
@@ -1267,9 +1393,12 @@ export default function App() {
         ? "OCR canceled."
         : `OCR complete · ${pageIndexes.length} page${pageIndexes.length === 1 ? "" : "s"} recognized`);
     } catch (cause) {
+      const startupFailed = !ocrCancelRequested.current && !worker;
       setOcrStatus(ocrCancelRequested.current
         ? "OCR canceled."
-        : cause instanceof Error ? `OCR failed: ${cause.message}` : "OCR failed.");
+        : startupFailed
+          ? "OCR unavailable: the offline engine could not start. Reopen the document to retry."
+          : cause instanceof Error ? `OCR failed: ${cause.message}` : "OCR failed.");
     } finally {
       if (worker) await worker.terminate().catch(() => undefined);
       ocrWorker.current = null;
@@ -1454,12 +1583,72 @@ export default function App() {
     setPreferenceStatus("Recovery snapshot deleted from this computer.");
   }, [refreshRecoverySnapshots]);
 
-  const discardRecovery = useCallback(() => {
-    void clearRecovery(recoveryId).catch(() => undefined);
-    setPendingRecovery(null);
-    setActiveDialog(null);
-    refreshRecoverySnapshots();
+  const discardRecovery = useCallback(async () => {
+    setRecoveryActionBusy(true);
+    try {
+      await clearRecovery(recoveryId);
+      setPendingRecovery(null);
+      setActiveDialog(null);
+      refreshRecoverySnapshots();
+    } catch (cause) {
+      setError(errorMessage(
+        cause,
+        "The recovery snapshot could not be discarded."
+      ));
+    } finally {
+      setRecoveryActionBusy(false);
+    }
   }, [recoveryId, refreshRecoverySnapshots]);
+
+  const openDeferredRecovery = useCallback(async () => {
+    if (!deferredRecovery) return;
+    setRecoveryActionBusy(true);
+    try {
+      if (!isTauri()) {
+        editor.restore(
+          new Uint8Array(deferredRecovery.bytes),
+          deferredRecovery.annotations
+        );
+        setFileName(deferredRecovery.fileName);
+        setSourcePath(deferredRecovery.sourcePath);
+        setDeferredRecovery(null);
+        return;
+      }
+      const result = await requestRecoveryWindow(
+        deferredRecovery.id,
+        (recoveryId) => invoke<string>("create_recovery_window", {
+          recoveryId
+        })
+      );
+      if (!result.opened) throw result.cause;
+      setDeferredRecovery(null);
+    } catch (cause) {
+      setError(errorMessage(
+        cause,
+        "The recovered document window could not be opened."
+      ));
+    } finally {
+      setRecoveryActionBusy(false);
+    }
+  }, [deferredRecovery, editor]);
+
+  const discardDeferredRecovery = useCallback(async () => {
+    if (!deferredRecovery) return;
+    setRecoveryActionBusy(true);
+    try {
+      await clearRecovery(deferredRecovery.id);
+      setDeferredRecovery(null);
+      refreshRecoverySnapshots();
+      setSuccessMessage("The local recovery snapshot was discarded.");
+    } catch (cause) {
+      setError(errorMessage(
+        cause,
+        "The recovery snapshot could not be discarded."
+      ));
+    } finally {
+      setRecoveryActionBusy(false);
+    }
+  }, [deferredRecovery, refreshRecoverySnapshots]);
 
   const continueSaveRequest = useCallback((forceSaveAs = false) => {
     if (!forceSaveAs && isTauri() && sourcePath) {
@@ -1538,6 +1727,7 @@ export default function App() {
     try {
       const saved = await savePdf(!sourcePath);
       if (!saved) return;
+      window.localStorage.removeItem(SESSION_KEY);
       allowWindowClose.current = true;
       setActiveDialog(null);
       if (isTauri()) await getCurrentWindow().destroy();
@@ -1550,6 +1740,7 @@ export default function App() {
 
   const discardAndClose = useCallback(async () => {
     await clearRecovery(recoveryId).catch(() => undefined);
+    window.localStorage.removeItem(SESSION_KEY);
     allowWindowClose.current = true;
     setActiveDialog(null);
     if (isTauri()) await getCurrentWindow().destroy();
@@ -2220,9 +2411,19 @@ export default function App() {
       {activeDialog === "recovery" && pendingRecovery && (
         <RecoveryDialog
           snapshot={pendingRecovery}
+          busy={recoveryActionBusy}
           onRecover={recoverUnsavedWork}
           onDiscard={discardRecovery}
           onCancel={() => setActiveDialog(null)}
+        />
+      )}
+      {deferredRecovery && !successMessage && !error && (
+        <RecoveryAvailableNotice
+          snapshot={deferredRecovery}
+          busy={recoveryActionBusy}
+          onOpen={openDeferredRecovery}
+          onDiscard={discardDeferredRecovery}
+          onDismiss={() => setDeferredRecovery(null)}
         />
       )}
       {activeDialog === "unsaved-close" && (
@@ -2606,6 +2807,7 @@ export default function App() {
                     annotations={editor.annotations.filter((annotation) => annotation.page === page.pageNumber)}
                     activeTool={activeTool}
                     onAddAnnotation={editor.addAnnotation}
+                    onTextFinished={() => setActiveTool("select")}
                     textStyle={textStyle}
                     penStyle={preferences.penStyle}
                     highlightStyle={preferences.highlightStyle}

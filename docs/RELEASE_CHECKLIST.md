@@ -26,6 +26,23 @@ annotations.
 - [ ] A failed save leaves the window open and displays an actionable error.
 - [ ] Closing one PDF window does not close a second open PDF window.
 
+## Recovery and file-open handoff
+
+- [ ] Launching SovereignPDF by opening a PDF keeps that requested PDF in the original window.
+- [ ] An available crash snapshot appears as a non-blocking recovered-work notice.
+- [ ] Open in new window restores the snapshot without replacing the requested PDF.
+- [ ] A failed recovery-window creation leaves the notice and snapshot available.
+- [ ] Dismiss keeps the snapshot available under Preferences.
+- [ ] Discard removes the selected local recovery snapshot.
+- [ ] A missing or corrupt snapshot produces an actionable local error without affecting the requested PDF.
+- [ ] A recovered snapshot remains usable when its original source path no longer exists.
+
+## Offline OCR
+
+- [ ] Image-only PDFs finish background OCR and become searchable.
+- [ ] A failed SIMD core falls back to the compatibility core.
+- [ ] Runtime inspection shows no OCR requests to a CDN or non-local host.
+
 ## Save and print
 
 - [ ] Overwriting an existing PDF leaves no `.tmp` file after success.
