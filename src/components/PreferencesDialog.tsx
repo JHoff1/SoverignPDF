@@ -47,6 +47,7 @@ export function PreferencesDialog({
       confirmLabel="Done"
       showCancel={false}
       wide
+      comfortable
       onCancel={onClose}
       onConfirm={onClose}
     >

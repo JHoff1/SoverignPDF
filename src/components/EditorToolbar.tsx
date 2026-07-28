@@ -6,6 +6,7 @@ import {
   ImagePlus,
   Minimize2,
   MousePointer2,
+  PanelLeft,
   PenLine,
   Redo2,
   RotateCcw,
@@ -39,6 +40,7 @@ export function EditorToolbar({
   canUndo,
   canRedo,
   activeTool,
+  sidebarOpen,
   searchOpen,
   zoom,
   viewMode,
@@ -46,6 +48,7 @@ export function EditorToolbar({
   onSplit,
   onDuplicate,
   onDelete,
+  onToggleSidebar,
   onUndo,
   onRedo,
   onRotate,
@@ -65,6 +68,7 @@ export function EditorToolbar({
   canUndo: boolean;
   canRedo: boolean;
   activeTool: Tool;
+  sidebarOpen: boolean;
   searchOpen: boolean;
   zoom: number;
   viewMode: ViewMode;
@@ -72,6 +76,7 @@ export function EditorToolbar({
   onSplit: Action;
   onDuplicate: Action;
   onDelete: Action;
+  onToggleSidebar: Action;
   onUndo: Action;
   onRedo: Action;
   onRotate: (amount: number) => void;
@@ -91,8 +96,8 @@ export function EditorToolbar({
     : `${selectionCount} selected pages`;
 
   return (
-    <div className="editor-toolbar relative z-30 flex h-20 w-full shrink-0 items-stretch overflow-visible border-b border-white/10 bg-toolbar px-1">
-      <div className="flex min-w-0 flex-[1_1_0%] flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2 min-[1680px]:hidden">
+    <div className="editor-toolbar relative z-30 grid h-20 w-full shrink-0 grid-cols-[1fr_1.1fr_1.1fr_2.4fr_1.1fr_2.1fr] items-stretch overflow-visible border-b border-white/10 bg-toolbar px-1 min-[1680px]:grid-cols-[2.2fr_1.1fr_1.1fr_2.4fr_2fr_2.1fr]">
+      <div className="flex min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2 min-[1680px]:hidden">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit</span>
         <div className="flex justify-center">
           <ToolbarDropdown label="Page Edit" tooltip="Open actions for the selected page" tooltipAlign="start" icon={<FilePlus2 size={16} />}>
@@ -100,20 +105,22 @@ export function EditorToolbar({
             <button data-tooltip={`Export ${selectedPagesLabel} as a new PDF`} data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onSplit()}><Scissors size={15} /> Split or extract</button>
             <button data-tooltip={`Make a copy of ${selectedPagesLabel}`} data-tooltip-align="start" className={dropdownItem} disabled={!documentPrepared} onClick={() => void onDuplicate()}><Copy size={15} /> Duplicate {selectionCount === 1 ? "page" : "pages"}</button>
             <button data-tooltip={`Remove ${selectedPagesLabel} from the document`} data-tooltip-align="start" className={dropdownItem + " text-red-300"} disabled={!documentPrepared || pageCount <= selectionCount} onClick={() => void onDelete()}><Trash2 size={15} /> Delete {selectionCount === 1 ? "page" : "pages"}</button>
+            <button data-tooltip="Show or hide page thumbnails and document bookmarks" data-tooltip-align="start" className={dropdownItem} aria-pressed={sidebarOpen} onClick={() => void onToggleSidebar()}><PanelLeft size={15} /> {sidebarOpen ? "Hide" : "Show"} navigation pane</button>
           </ToolbarDropdown>
         </div>
       </div>
-      <div className="hidden min-w-0 flex-[2.2_1_0%] flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1680px]:flex">
+      <div className="hidden min-w-0 flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1680px]:flex">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Page Edit</span>
         <div className="flex justify-center">
           <button data-tooltip="Append all pages from another local PDF" data-tooltip-align="start" className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onMerge()}><FilePlus2 size={16} /> Merge</button>
           <button data-tooltip={`Export ${selectedPagesLabel} as a new PDF`} className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onSplit()}><Scissors size={16} /> Split</button>
           <button data-tooltip={`Make a copy of ${selectedPagesLabel}`} className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onDuplicate()}><Copy size={16} /> Duplicate</button>
           <button data-tooltip={`Remove ${selectedPagesLabel} from the document`} className={iconButton + " toolbar-tooltip text-red-300"} disabled={!documentPrepared || pageCount <= selectionCount} onClick={() => void onDelete()}><Trash2 size={16} /> Delete</button>
+          <button aria-label={`${sidebarOpen ? "Hide" : "Show"} navigation pane`} aria-pressed={sidebarOpen} data-tooltip="Show or hide page thumbnails and document bookmarks" className={iconButton + (sidebarOpen ? " bg-white/10 text-zinc-100" : "")} onClick={() => void onToggleSidebar()}><PanelLeft size={16} /><span className="hidden min-[1850px]:inline">Navigation</span></button>
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-[1.1_1_0%] flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2">
+      <div className="flex min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-sky-400/80">History</span>
         <div className="flex justify-center">
           <button className={compactToolButton + " text-sky-300"} data-tooltip="Undo the most recent document change" disabled={!canUndo} onClick={() => void onUndo()}><Undo2 size={16} /><span className="hidden min-[1200px]:inline">Undo</span></button>
@@ -121,7 +128,7 @@ export function EditorToolbar({
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-[1.1_1_0%] flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2">
+      <div className="flex min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-amber-400/80">Rotate</span>
         <div className="flex justify-center">
           <button className={compactToolButton + " text-amber-300"} data-tooltip={`Rotate ${selectedPagesLabel} 90 degrees counterclockwise`} disabled={!documentPrepared} onClick={() => onRotate(-90)}><RotateCcw size={16} /><span className="hidden min-[1200px]:inline">Left</span></button>
@@ -129,7 +136,7 @@ export function EditorToolbar({
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-[2.4_1_0%] flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2">
+      <div data-testid="markup-toolbar-group" className="flex min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-orange-400/80">Markup</span>
         <div className="flex justify-center">
           <button aria-label="Select" className={compactToolButton + selectedToolClass("select")} data-tooltip="Select, move, resize, or delete an annotation" onClick={() => onToolChange("select")}><MousePointer2 size={16} /><span className="hidden min-[1400px]:inline">Select</span></button>
@@ -141,7 +148,7 @@ export function EditorToolbar({
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-[1.1_1_0%] flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2 min-[1680px]:hidden">
+      <div className="flex min-w-0 flex-col gap-2 border-r border-white/10 px-1.5 pb-1 pt-2 min-[1680px]:hidden">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
         <div className="flex justify-center">
           <ToolbarDropdown label="Document" tooltip="Open document-wide cleanup and export tools" icon={<FileCheck2 size={16} />}>
@@ -151,7 +158,7 @@ export function EditorToolbar({
           </ToolbarDropdown>
         </div>
       </div>
-      <div className="hidden min-w-0 flex-[2_1_0%] flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1680px]:flex">
+      <div className="hidden min-w-0 flex-col gap-2 border-r border-white/10 px-2 pb-1 pt-2 min-[1680px]:flex">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-emerald-400/80">Document</span>
         <div className="flex justify-center">
           <button className={iconButton + " toolbar-tooltip"} disabled={!documentPrepared} onClick={() => void onFlattenForms()} data-tooltip="Make form values permanent page content; fields can no longer be edited"><FileCheck2 size={16} /> Flatten Forms</button>
@@ -160,7 +167,7 @@ export function EditorToolbar({
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-[2.1_1_0%] flex-col gap-2 px-1.5 pb-1 pt-2">
+      <div className="flex min-w-0 flex-col gap-2 px-1.5 pb-1 pt-2">
         <span className="mx-1 border-b border-white/10 px-1 pb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-500">View</span>
         <div className="flex items-center justify-center gap-0.5">
           <button className={compactToolButton + (searchOpen ? " bg-white/10 text-white" : "")} disabled={!hasDocument} onClick={() => void onToggleSearch()} data-tooltip="Search prepared text; image-only pages are OCR-processed in the background (Ctrl/Command+F)" data-tooltip-align="end"><Search size={16} /><span className="hidden min-[1200px]:inline">Find</span></button>

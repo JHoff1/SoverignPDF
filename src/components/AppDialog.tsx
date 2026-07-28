@@ -11,6 +11,7 @@ export function AppDialog({
   secondaryLabel,
   onSecondary,
   wide = false,
+  comfortable = false,
   onCancel,
   onConfirm,
   children
@@ -24,6 +25,7 @@ export function AppDialog({
   secondaryLabel?: string;
   onSecondary?: () => void | Promise<void>;
   wide?: boolean;
+  comfortable?: boolean;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
   children: ReactNode;
@@ -47,7 +49,7 @@ export function AppDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="app-dialog-title"
-        className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} rounded-xl border border-white/15 bg-[#202329] shadow-2xl`}
+        className={`w-full ${wide ? comfortable ? "max-w-3xl" : "max-w-2xl" : "max-w-md"} rounded-xl border border-white/15 bg-[#202329] shadow-2xl`}
         onSubmit={(event) => {
           event.preventDefault();
           if (!confirmDisabled && !busy) void onConfirm();
@@ -55,14 +57,14 @@ export function AppDialog({
       >
         <div className="flex items-start gap-4 border-b border-white/10 px-5 py-4">
           <div className="min-w-0 flex-1">
-            <h2 id="app-dialog-title" className="text-base font-semibold text-zinc-100">{title}</h2>
-            <p className="mt-1 text-xs leading-5 text-zinc-400">{description}</p>
+            <h2 id="app-dialog-title" className={`${comfortable ? "text-lg" : "text-base"} font-semibold text-zinc-100`}>{title}</h2>
+            <p className={`mt-1 ${comfortable ? "text-sm leading-6" : "text-xs leading-5"} text-zinc-400`}>{description}</p>
           </div>
           <button type="button" aria-label="Close dialog" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-40" disabled={busy} onClick={onCancel}>
             <X size={16} />
           </button>
         </div>
-        <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
+        <div className={`max-h-[70vh] overflow-y-auto px-5 py-4 ${comfortable ? "preferences-content" : ""}`}>{children}</div>
         <div className="flex justify-end gap-2 border-t border-white/10 px-5 py-3">
           {secondaryLabel && onSecondary && (
             <button type="button" className="h-9 rounded-md bg-red-500/15 px-4 text-xs font-medium text-red-200 hover:bg-red-500/25 disabled:opacity-40" disabled={busy} onClick={() => void onSecondary()}>
@@ -74,7 +76,7 @@ export function AppDialog({
               Cancel
             </button>
           )}
-          <button type="submit" className="h-9 rounded-md bg-accent px-4 text-xs font-semibold text-white hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-40" disabled={confirmDisabled || busy}>
+          <button type="submit" className={`${comfortable ? "h-10 text-sm" : "h-9 text-xs"} rounded-md bg-accent px-4 font-semibold text-white hover:bg-orange-500 disabled:cursor-not-allowed disabled:opacity-40`} disabled={confirmDisabled || busy}>
             {busy ? "Working…" : confirmLabel}
           </button>
         </div>

@@ -96,6 +96,12 @@ test("shows a visible error when a selected PDF cannot be parsed", async ({ page
   });
 
   await expect(page.getByRole("alert")).toContainText("Unable to complete that action");
+  await expect(page.getByRole("banner")).not.toContainText(
+    "Unable to complete that action"
+  );
+  await expect(page.getByRole("banner")).toContainText(
+    "Drop a local PDF here or choose Open"
+  );
   await expect(
     page.getByRole("alert").getByRole("button", { name: "Report issue" })
   ).toBeVisible();
@@ -189,7 +195,9 @@ test("loads, searches, rotates, annotates, and restores history", async ({
   expect(rotated[1]?.width).toBeGreaterThan(rotated[1]?.height ?? 0);
   expect(rotated[2]?.height).toBeGreaterThan(rotated[2]?.width ?? 0);
   await expect(pageTwoThumbnail).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("2 / 3", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("contentinfo", { name: "Document status" })
+  ).toContainText("Page 2 of 3");
 
   await page.getByRole("button", { name: "Undo" }).click();
   await expect
@@ -246,6 +254,62 @@ test("loads, searches, rotates, annotates, and restores history", async ({
   await expect(annotationToolbar).toBeHidden();
 });
 
+test("uses a dual-contrast cursor for markup tools", async ({ page }) => {
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "cursor-contrast.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+
+  await expect(page.locator('[aria-label="Page 1"]')).toBeVisible();
+  await page.locator(
+    'button[data-tooltip="Draw freehand ink on a page"]'
+  ).click();
+  const annotationLayers = page.getByTestId("annotation-layer");
+  await expect.poll(async () => annotationLayers.count()).toBeGreaterThan(0);
+  const annotationLayer = annotationLayers.nth(0);
+  await expect(annotationLayer).toHaveAttribute("data-active-tool", "pen");
+  await expect.poll(async () =>
+    annotationLayer.evaluate((element) => getComputedStyle(element).cursor)
+  ).toContain("data:image/svg+xml");
+});
+
+test("aligns text formatting controls beneath the Markup toolbar group", async ({
+  page
+}) => {
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "text-toolbar-alignment.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+
+  await expect(page.locator('[aria-label="Page 1"]')).toBeVisible();
+  await page.locator(
+    'button[data-tooltip="Click a page to place and edit a text box"]'
+  ).click();
+
+  const markupGroup = page.getByTestId("markup-toolbar-group");
+  const textControls = page.getByTestId("text-formatting-controls");
+  await expect(textControls).toBeVisible();
+  const expectMarkupAlignment = async () => {
+    await expect.poll(async () => {
+      const markupBox = await markupGroup.boundingBox();
+      const controlsBox = await textControls.boundingBox();
+      return Math.abs((markupBox?.x ?? 0) - (controlsBox?.x ?? 100));
+    }).toBeLessThanOrEqual(2);
+  };
+
+  await expectMarkupAlignment();
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await expectMarkupAlignment();
+});
+
 test("shows document status and provides searchable keyboard shortcuts", async ({
   page
 }) => {
@@ -262,6 +326,14 @@ test("shows document status and provides searchable keyboard shortcuts", async (
   await expect(statusBar).toContainText("Page 1 of 3");
   await expect(statusBar).toContainText("612 × 792 pt");
   await expect(statusBar).toContainText("Saved");
+  await expect(
+    statusBar.getByLabel(/SovereignPDF version \d+\.\d+\.\d+/)
+  ).toBeVisible();
+  await expect(
+    page.getByRole("main").getByText("Page 1 of 3", { exact: true })
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Next page" }).click();
+  await expect(statusBar).toContainText("Page 2 of 3");
 
   await page.keyboard.press("Control+/");
   const shortcutDialog = page.getByRole("dialog", {
@@ -279,6 +351,46 @@ test("shows document status and provides searchable keyboard shortcuts", async (
   await expect(page.getByLabel("Zoom percentage")).toHaveValue("100");
 });
 
+test("navigates the viewer when a page thumbnail is clicked", async ({
+  page
+}) => {
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "thumbnail-navigation.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+
+  const pageThree = page.locator('[aria-label="Page 3"]');
+  await expect(page.locator('[aria-label="Page 1"]')).toBeVisible();
+  await page.getByRole("button", { name: "3", exact: true }).click();
+
+  await expect(pageThree).toBeInViewport();
+  await expect(
+    page.getByRole("contentinfo", { name: "Document status" })
+  ).toContainText("Page 3 of 3");
+});
+
+test("toggles the navigation pane from Page Edit", async ({ page }) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "navigation-pane.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+
+  await expect(page.getByRole("button", { name: "Pages", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Hide navigation pane" }).click();
+  await expect(page.getByRole("button", { name: "Pages", exact: true })).toBeHidden();
+  await page.getByRole("button", { name: "Show navigation pane" }).click();
+  await expect(page.getByRole("button", { name: "Pages", exact: true })).toBeVisible();
+});
+
 test("selects and rotates multiple pages as one history action", async ({ page }) => {
   await page.goto("/");
   await page.locator(
@@ -291,6 +403,7 @@ test("selects and rotates multiple pages as one history action", async ({ page }
 
   const firstThumbnail = page.getByRole("button", { name: "1", exact: true });
   const secondThumbnail = page.getByRole("button", { name: "2", exact: true });
+  const thirdThumbnail = page.getByRole("button", { name: "3", exact: true });
   await firstThumbnail.click();
   await secondThumbnail.click({ modifiers: ["Control"] });
   await expect(
@@ -298,9 +411,9 @@ test("selects and rotates multiple pages as one history action", async ({ page }
   ).toContainText("2 pages selected");
 
   await page.getByRole("button", { name: "Right" }).click();
-  const pageOne = page.locator('[aria-label="Page 1"]');
-  const pageTwo = page.locator('[aria-label="Page 2"]');
-  const pageThree = page.locator('[aria-label="Page 3"]');
+  const pageOne = firstThumbnail.locator("canvas");
+  const pageTwo = secondThumbnail.locator("canvas");
+  const pageThree = thirdThumbnail.locator("canvas");
   await expect.poll(async () => {
     const [one, two, three] = await Promise.all([
       pageOne.boundingBox(),
@@ -395,8 +508,10 @@ test("opens local print options from Ctrl+P and validates page ranges", async ({
   const dialog = page.getByRole("dialog", { name: "Print PDF" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel("Pages or ranges")).toHaveValue("1-3");
-  await dialog.getByLabel(/landscape/i).check();
-  await expect(dialog.getByLabel(/landscape/i)).toBeChecked();
+  await expect(dialog.getByRole("radio")).toHaveCount(0);
+  await expect(dialog).toContainText(
+    "where you can choose orientation and other printer settings"
+  );
   await dialog.getByLabel("Pages or ranges").fill("4");
   await dialog.getByRole("button", { name: "Open Print Dialog" }).click();
   await expect(dialog).toContainText("Pages must be between 1 and 3");
@@ -419,6 +534,24 @@ test("keeps distant pages virtualized in a large document", async ({ page }) => 
   await expect
     .poll(() => page.locator("[data-page-mounted]").count())
     .toBeLessThan(20);
+});
+
+test("shows a clear empty annotation state in the export summary", async ({
+  page
+}) => {
+  await page.goto("/");
+  await page.locator(
+    'input[type="file"][accept="application/pdf,.pdf"]'
+  ).nth(0).setInputFiles({
+    name: "no-annotations.pdf",
+    mimeType: "application/pdf",
+    buffer: await syntheticPdf()
+  });
+
+  await page.getByRole("button", { name: "Save PDF As" }).click();
+  const summary = page.getByRole("dialog", { name: "Review export" });
+  await expect(summary).toContainText("There are no annotations to flatten.");
+  await expect(summary).not.toContainText("0 annotations will be flattened");
 });
 
 test("secure redaction removes underlying text only from affected pages", async ({

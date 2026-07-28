@@ -69,3 +69,23 @@ export function fileUrlToPath(value: string) {
     return value;
   }
 }
+
+export function normalizeLocalPath(value: string) {
+  let path = fileUrlToPath(value).trim();
+  if (/^\\\\\?\\UNC\\/i.test(path)) {
+    path = `\\\\${path.slice(8)}`;
+  } else if (/^\\\\\?\\/.test(path)) {
+    path = path.slice(4);
+  }
+  if (/^[a-zA-Z]:[\\/]/.test(path) || path.startsWith("\\\\")) {
+    path = path.replace(/\//g, "\\");
+  }
+  return path;
+}
+
+export function localPathKey(value: string) {
+  const path = normalizeLocalPath(value);
+  return /^[a-zA-Z]:\\/.test(path) || path.startsWith("\\\\")
+    ? path.toLocaleLowerCase()
+    : path;
+}

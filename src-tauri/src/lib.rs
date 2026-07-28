@@ -167,14 +167,26 @@ fn read_pdf_bytes(path: &Path) -> Result<Vec<u8>, String> {
 
 #[tauri::command]
 fn read_pdf_file(app: tauri::AppHandle, path: String) -> Result<tauri::ipc::Response, String> {
-    let path = Path::new(&path);
-    if !app.fs_scope().is_allowed(path) {
-        return Err(
-            "SovereignPDF does not have permission to read this file. Move it to a local folder or choose it again with Open."
-                .into(),
-        );
+    let path = Path::new(&path).canonicalize().map_err(|error| {
+        format!(
+            "The selected PDF is no longer available ({:?}): {error}",
+            error.kind()
+        )
+    })?;
+    if !path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+    {
+        return Err("Only PDF files can be opened.".into());
     }
-    read_pdf_bytes(path).map(tauri::ipc::Response::new)
+    let scope = app.fs_scope();
+    if !scope.is_allowed(&path) {
+        scope
+            .allow_file(&path)
+            .map_err(|error| format!("SovereignPDF could not authorize this local PDF: {error}"))?;
+    }
+    read_pdf_bytes(&path).map(tauri::ipc::Response::new)
 }
 
 #[tauri::command]

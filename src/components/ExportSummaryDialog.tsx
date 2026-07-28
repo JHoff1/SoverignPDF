@@ -71,11 +71,11 @@ export function ExportSummaryDialog({
           icon={<FileOutput size={16} />}
           title="Annotations"
           detail={
-            flattenAnnotations
-              ? `${annotationCount} annotation${annotationCount === 1 ? "" : "s"} will be flattened into permanent page content.`
-              : annotationCount
-                ? `${annotationCount} overlay annotation${annotationCount === 1 ? "" : "s"} will not be included because flattening is disabled.`
-                : "No overlay annotations are present."
+            annotationCount === 0
+              ? "There are no annotations to flatten."
+              : flattenAnnotations
+                ? `${annotationCount} annotation${annotationCount === 1 ? "" : "s"} will be flattened into permanent page content.`
+                : `${annotationCount} overlay annotation${annotationCount === 1 ? "" : "s"} will not be included because flattening is disabled.`
           }
           warning={!flattenAnnotations && annotationCount > 0}
         />

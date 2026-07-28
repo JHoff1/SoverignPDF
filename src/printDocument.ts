@@ -3,8 +3,6 @@ import {
   type PDFDocumentProxy
 } from "pdfjs-dist/legacy/build/pdf.mjs";
 
-export type PrintOrientation = "portrait" | "landscape";
-
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -46,13 +44,11 @@ export async function printPdfPages({
   bytes,
   document,
   pageNumbers,
-  orientation,
   title
 }: {
   bytes?: Uint8Array;
   document?: PDFDocumentProxy;
   pageNumbers: number[];
-  orientation: PrintOrientation;
   title: string;
 }) {
   if (!bytes && !document) throw new Error("No PDF is available to print.");
@@ -78,7 +74,7 @@ export async function printPdfPages({
     <meta charset="utf-8">
     <title>${escapeHtml(title)}</title>
     <style>
-      @page { size: ${orientation}; margin: 0.25in; }
+      @page { margin: 0.25in; }
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; background: white; }
       .page {

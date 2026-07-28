@@ -1,6 +1,6 @@
 import type { TextStyle } from "./editor/useDocumentEditor";
 import type { StrokeStyle, ViewMode } from "./editorUiTypes";
-import { clonePlain } from "./localUtils";
+import { clonePlain, localPathKey, normalizeLocalPath } from "./localUtils";
 
 export type ThemePreference = "system" | "dark" | "light";
 
@@ -53,6 +53,19 @@ export function loadPreferences(): AppPreferences {
     const stored = JSON.parse(
       window.localStorage.getItem(PREFERENCES_KEY) ?? "{}"
     ) as Partial<AppPreferences>;
+    const recentPathKeys = new Set<string>();
+    const recentFiles = Array.isArray(stored.recentFiles)
+      ? stored.recentFiles
+        .filter((path): path is string => typeof path === "string")
+        .map(normalizeLocalPath)
+        .filter((path) => {
+          const key = localPathKey(path);
+          if (!path || recentPathKeys.has(key)) return false;
+          recentPathKeys.add(key);
+          return true;
+        })
+        .slice(0, 8)
+      : [];
     return {
       ...DEFAULT_PREFERENCES,
       ...stored,
@@ -77,11 +90,7 @@ export function loadPreferences(): AppPreferences {
         420,
         Math.max(240, Number(stored.propertiesWidth) || DEFAULT_PREFERENCES.propertiesWidth)
       ),
-      recentFiles: Array.isArray(stored.recentFiles)
-        ? stored.recentFiles
-          .filter((path): path is string => typeof path === "string")
-          .slice(0, 8)
-        : []
+      recentFiles
     };
   } catch {
     return clonePlain(DEFAULT_PREFERENCES);

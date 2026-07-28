@@ -427,7 +427,9 @@ export function PdfPageCanvas({
       <svg
         viewBox="0 0 1 1"
         preserveAspectRatio="none"
-        className={`absolute inset-0 h-full w-full ${activeTool === "select" ? "pointer-events-none" : "cursor-crosshair"}`}
+        data-testid="annotation-layer"
+        data-active-tool={activeTool}
+        className={`absolute inset-0 h-full w-full ${activeTool === "select" ? "pointer-events-none" : "annotation-cursor"}`}
         aria-label="Annotation layer"
         onPointerDown={(event) => {
           const bounds = event.currentTarget.getBoundingClientRect();

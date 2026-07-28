@@ -10,14 +10,11 @@ import {
   AlertTriangle,
   BookOpen,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   FileDown,
   FilePlus2,
   FolderOpen,
   Keyboard,
   LoaderCircle,
-  Menu,
   Printer,
   Save,
   Settings,
@@ -58,6 +55,8 @@ import {
   createLocalId,
   fileUrlToPath,
   joinLocalPath,
+  localPathKey,
+  normalizeLocalPath,
   parsePageRanges
 } from "./localUtils";
 import {
@@ -70,10 +69,7 @@ import {
   type RecoverySnapshot
 } from "./recoveryStore";
 import { iconButton } from "./components/ToolbarDropdown";
-import {
-  printPdfPages,
-  type PrintOrientation
-} from "./printDocument";
+import { printPdfPages } from "./printDocument";
 import { OcrStatus, SearchPanel } from "./components/SearchPanels";
 import { PrintDialog } from "./components/PrintDialog";
 import { PageThumbnail } from "./components/PageThumbnail";
@@ -269,7 +265,6 @@ export default function App() {
   const [splitError, setSplitError] = useState("");
   const [printRanges, setPrintRanges] = useState("");
   const [printError, setPrintError] = useState("");
-  const [printOrientation, setPrintOrientation] = useState<PrintOrientation>("portrait");
   const [pendingSplitBytes, setPendingSplitBytes] = useState<Uint8Array | null>(null);
   const [mergeCandidates, setMergeCandidates] = useState<MergeCandidate[]>([]);
   const [successMessage, setSuccessMessage] = useState("");
@@ -793,9 +788,14 @@ export default function App() {
       void getCurrentWindow().setTitle(`${name} — SovereignPDF`);
     }
     if (path) {
+      const normalizedPath = normalizeLocalPath(path);
+      const normalizedKey = localPathKey(normalizedPath);
       setPreferences((current) => ({
         ...current,
-        recentFiles: [path, ...current.recentFiles.filter((item) => item !== path)].slice(0, 8)
+        recentFiles: [
+          normalizedPath,
+          ...current.recentFiles.filter((item) => localPathKey(item) !== normalizedKey)
+        ].slice(0, 8)
       }));
     }
     setCurrentPage(1);
@@ -807,12 +807,17 @@ export default function App() {
   }, [editor.load, preferences.viewMode, preferences.zoom]);
 
   const readAndLoadPdf = useCallback(async (path: string) => {
+    const normalizedPath = normalizeLocalPath(path);
     setBusy(true);
-    setLoadingStage(`Reading ${baseName(path)}…`);
+    setLoadingStage(`Reading ${baseName(normalizedPath)}…`);
     setLoadingProgress(0.02);
     setError(null);
     try {
-      loadPdf(await readLocalPdf(path), baseName(path), path);
+      loadPdf(
+        await readLocalPdf(normalizedPath),
+        baseName(normalizedPath),
+        normalizedPath
+      );
     } catch (cause) {
       setBusy(false);
       throw cause;
@@ -1105,6 +1110,9 @@ export default function App() {
       pageSelectionAnchor.current = pageNumber;
       return;
     }
+    window.document
+      .getElementById(`page-${pageNumber}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
     setSelectedPages(new Set([pageNumber]));
     pageSelectionAnchor.current = pageNumber;
   }, []);
@@ -1500,7 +1508,6 @@ export default function App() {
         await printPdfPages({
           document: pdfDocument,
           pageNumbers: parsed.pages,
-          orientation: printOrientation,
           title: fileName
         });
       } else {
@@ -1509,7 +1516,6 @@ export default function App() {
         await printPdfPages({
           bytes: new Uint8Array(bytes),
           pageNumbers: parsed.pages,
-          orientation: printOrientation,
           title: fileName
         });
       }
@@ -1524,7 +1530,6 @@ export default function App() {
     passwordProtected,
     pdfDocument,
     prepareExportBytes,
-    printOrientation,
     printRanges
   ]);
 
@@ -2021,10 +2026,9 @@ export default function App() {
 
   const status = useMemo(() => {
     if (busy) return "Opening document…";
-    if (error) return error;
     if (!pdfDocument) return "Drop a local PDF here or choose Open";
     return `${pdfDocument.numPages} page${pdfDocument.numPages === 1 ? "" : "s"}`;
-  }, [busy, pdfDocument, error]);
+  }, [busy, pdfDocument]);
 
   const currentPageDimensions = useMemo(() => {
     const page = pages[currentPage - 1];
@@ -2255,13 +2259,11 @@ export default function App() {
           pageCount={pages.length}
           ranges={printRanges}
           error={printError}
-          orientation={printOrientation}
           busy={dialogBusy}
           onRangesChange={(value) => {
             setPrintRanges(value);
             if (printError) setPrintError("");
           }}
-          onOrientationChange={setPrintOrientation}
           onCancel={() => setActiveDialog(null)}
           onConfirm={confirmPrint}
         />
@@ -2349,22 +2351,13 @@ export default function App() {
         </div>
       )}
       <header className="flex h-12 shrink-0 items-center border-b border-white/10 bg-panel px-3">
-        <button className={iconButton} onClick={() => setSidebarOpen((value) => !value)}>
-          <Menu size={17} />
-        </button>
         <img
           src="/app-icon.png"
           alt=""
           aria-hidden="true"
-          className="ml-1.5 h-7 w-7 shrink-0 rounded-[7px]"
+          className="h-7 w-7 shrink-0 rounded-[7px]"
         />
-        <div className="ml-2 min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{fileName}</div>
-          <div className={`truncate text-[10px] ${error ? "text-red-400" : "text-zinc-500"}`}>
-            {status}
-          </div>
-        </div>
-        <div className="ml-3 flex shrink-0 items-center">
+        <div className="ml-2 flex shrink-0 items-center">
           <button aria-label="Open PDF" className={iconButton} onClick={openPdf}>
             <FolderOpen size={16} /> <span className="hidden min-[1050px]:inline">Open</span>
           </button>
@@ -2384,7 +2377,15 @@ export default function App() {
           >
             <Printer size={16} /> <span className="hidden min-[1120px]:inline">Print</span>
           </button>
-          <div className="mx-2 h-6 w-px bg-white/10" aria-hidden="true" />
+        </div>
+        <div className="mx-2 h-6 w-px shrink-0 bg-white/10" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold">{fileName}</div>
+          <div className="truncate text-[10px] text-zinc-500">
+            {status}
+          </div>
+        </div>
+        <div className="ml-3 flex shrink-0 items-center">
           <button
             aria-label="Keyboard shortcuts"
             className={iconButton + " toolbar-tooltip"}
@@ -2417,6 +2418,7 @@ export default function App() {
         canUndo={editor.canUndo}
         canRedo={editor.canRedo}
         activeTool={activeTool}
+        sidebarOpen={sidebarOpen}
         searchOpen={searchOpen}
         zoom={zoom}
         viewMode={viewMode}
@@ -2424,6 +2426,7 @@ export default function App() {
         onSplit={splitPdf}
         onDuplicate={duplicateSelectedPage}
         onDelete={deleteSelectedPage}
+        onToggleSidebar={() => setSidebarOpen((value) => !value)}
         onUndo={editor.undo}
         onRedo={editor.redo}
         onRotate={rotateSelectedPage}
@@ -2440,17 +2443,23 @@ export default function App() {
       />
 
       {activeTool === "text" && pdfDocument && (
-        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-orange-500/15 bg-[#202329] px-3">
-          <Type size={15} className="text-orange-300" />
-          <span className="mr-1 text-[10px] font-semibold uppercase tracking-wider text-orange-300/70">Text</span>
-          <select aria-label="Text font" value={textStyle.fontFamily} onChange={(event) => setTextStyle((style) => ({ ...style, fontFamily: event.target.value as TextStyle["fontFamily"] }))} className="h-7 rounded border border-white/10 bg-[#24272d] px-2 text-xs text-zinc-200">
-            <option value="helvetica">Arial</option><option value="times">Times</option><option value="courier">Courier</option>
-          </select>
-          <input aria-label="Text size" type="number" min="6" max="96" value={textStyle.size} onChange={(event) => setTextStyle((style) => ({ ...style, size: Math.min(96, Math.max(6, Number(event.target.value) || 6)) }))} className="h-7 w-12 rounded border border-white/10 bg-[#24272d] px-1 text-xs text-zinc-200" />
-          <button aria-label="Bold" className={`h-7 w-7 rounded text-xs font-bold ${textStyle.bold ? "bg-accent/30 text-orange-100" : "text-zinc-400 hover:bg-white/10"}`} onClick={() => setTextStyle((style) => ({ ...style, bold: !style.bold }))}>B</button>
-          <button aria-label="Italic" className={`h-7 w-7 rounded text-xs italic ${textStyle.italic ? "bg-accent/30 text-orange-100" : "text-zinc-400 hover:bg-white/10"}`} onClick={() => setTextStyle((style) => ({ ...style, italic: !style.italic }))}>I</button>
-          <input aria-label="Text color" type="color" value={textStyle.color} onChange={(event) => setTextStyle((style) => ({ ...style, color: event.target.value }))} className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0" />
-          <span className="ml-1 text-[11px] text-zinc-500">Click anywhere on the page to type</span>
+        <div className="grid h-11 shrink-0 grid-cols-[1fr_1.1fr_1.1fr_5.6fr] border-b border-orange-500/15 bg-[#202329] px-1 min-[1680px]:grid-cols-[2.2fr_1.1fr_1.1fr_6.5fr]">
+          <div className="col-span-3" aria-hidden="true" />
+          <div
+            data-testid="text-formatting-controls"
+            className="flex min-w-0 items-center gap-2 border-l border-orange-500/15 px-3"
+          >
+            <Type size={15} className="shrink-0 text-orange-300" />
+            <span className="mr-1 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-orange-300/70">Text</span>
+            <select aria-label="Text font" value={textStyle.fontFamily} onChange={(event) => setTextStyle((style) => ({ ...style, fontFamily: event.target.value as TextStyle["fontFamily"] }))} className="h-7 rounded border border-white/10 bg-[#24272d] px-2 text-xs text-zinc-200">
+              <option value="helvetica">Arial</option><option value="times">Times</option><option value="courier">Courier</option>
+            </select>
+            <input aria-label="Text size" type="number" min="6" max="96" value={textStyle.size} onChange={(event) => setTextStyle((style) => ({ ...style, size: Math.min(96, Math.max(6, Number(event.target.value) || 6)) }))} className="h-7 w-12 rounded border border-white/10 bg-[#24272d] px-1 text-xs text-zinc-200" />
+            <button aria-label="Bold" className={`h-7 w-7 shrink-0 rounded text-xs font-bold ${textStyle.bold ? "bg-accent/30 text-orange-100" : "text-zinc-400 hover:bg-white/10"}`} onClick={() => setTextStyle((style) => ({ ...style, bold: !style.bold }))}>B</button>
+            <button aria-label="Italic" className={`h-7 w-7 shrink-0 rounded text-xs italic ${textStyle.italic ? "bg-accent/30 text-orange-100" : "text-zinc-400 hover:bg-white/10"}`} onClick={() => setTextStyle((style) => ({ ...style, italic: !style.italic }))}>I</button>
+            <input aria-label="Text color" type="color" value={textStyle.color} onChange={(event) => setTextStyle((style) => ({ ...style, color: event.target.value }))} className="h-7 w-7 shrink-0 cursor-pointer rounded border-0 bg-transparent p-0" />
+            <span className="ml-1 hidden min-w-0 truncate text-[11px] text-zinc-500 min-[1100px]:inline">Click anywhere on the page to type</span>
+          </div>
         </div>
       )}
 
@@ -2663,13 +2672,6 @@ export default function App() {
               })}
             </div>
           )}
-          {pdfDocument && (
-            <div className="pointer-events-none absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center rounded-lg border border-white/10 bg-panel/95 px-2 py-1 shadow-xl backdrop-blur">
-              <button className={iconButton + " pointer-events-auto"} disabled={currentPage <= 1} onClick={() => jumpToPage(currentPage - 1)}><ChevronLeft size={16} /></button>
-              <span className="min-w-20 text-center text-xs text-zinc-300">{currentPage} / {pdfDocument.numPages}</span>
-              <button className={iconButton + " pointer-events-auto"} disabled={currentPage >= pages.length} onClick={() => jumpToPage(currentPage + 1)}><ChevronRight size={16} /></button>
-            </div>
-          )}
         </section>
         {selectedAnnotation && activeTool === "select" && (
           <>
@@ -2706,6 +2708,8 @@ export default function App() {
         zoom={zoom}
         dirty={editor.isDirty}
         activity={backgroundActivity}
+        onPreviousPage={() => jumpToPage(currentPage - 1)}
+        onNextPage={() => jumpToPage(currentPage + 1)}
       />
     </div>
   );

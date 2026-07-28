@@ -5,6 +5,8 @@ import {
   createLocalId,
   fileUrlToPath,
   joinLocalPath,
+  localPathKey,
+  normalizeLocalPath,
   parsePageRanges
 } from "../../src/localUtils";
 
@@ -57,6 +59,15 @@ describe("cross-platform local paths", () => {
     );
     expect(fileUrlToPath("C:\\Documents\\file.pdf")).toBe(
       "C:\\Documents\\file.pdf"
+    );
+  });
+
+  it("normalizes extended Windows paths and compares them case-insensitively", () => {
+    expect(
+      normalizeLocalPath("\\\\?\\C:\\Users\\Jacob\\Desktop\\Document.pdf")
+    ).toBe("C:\\Users\\Jacob\\Desktop\\Document.pdf");
+    expect(localPathKey("C:/Users/Jacob/Desktop/Document.pdf")).toBe(
+      localPathKey("\\\\?\\c:\\users\\jacob\\desktop\\document.pdf")
     );
   });
 });
