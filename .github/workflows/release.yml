@@ -169,7 +169,7 @@ jobs:
       - name: Retain Store package
         uses: actions/upload-artifact@v4
         with:
-          name: sovereignpdf-store-${{ matrix.architecture }}
+          name: veritypdf-store-${{ matrix.architecture }}
           path: |
             src-tauri/target/store/${{ matrix.architecture }}/*.msix
             src-tauri/target/store/${{ matrix.architecture }}/*.sha256
@@ -193,11 +193,15 @@ jobs:
           cp "$(find . -maxdepth 1 -type f -name '*.AppImage' -print -quit)" VerityPDF.AppImage
           cp "$(find . -maxdepth 1 -type f -name '*.deb' -print -quit)" VerityPDF.deb
           cp "$(find . -maxdepth 1 -type f -name '*.dmg' -print -quit)" VerityPDF.dmg
-          cp "$(find . -maxdepth 1 -type f -name '*-setup.exe' -print -quit)" VerityPDF-Setup.exe
+          cp "$(find . -maxdepth 1 -type f -name '*-setup.exe' -print -quit)" VerityPDF.exe
           cp "$(find . -maxdepth 1 -type f -name '*.msi' -print -quit)" VerityPDF.msi
-          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\0' \
-            | sort -z \
-            | xargs -0 sha256sum > SHA256SUMS.txt
+          sha256sum \
+            VerityPDF.AppImage \
+            VerityPDF.deb \
+            VerityPDF.dmg \
+            VerityPDF.exe \
+            VerityPDF.msi \
+            > SHA256SUMS.txt
 
       - name: Attach stable download files and checksum manifest
         env:
@@ -208,10 +212,30 @@ jobs:
             release-assets/VerityPDF.AppImage \
             release-assets/VerityPDF.deb \
             release-assets/VerityPDF.dmg \
-            release-assets/VerityPDF-Setup.exe \
+            release-assets/VerityPDF.exe \
             release-assets/VerityPDF.msi \
             release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Remove versioned duplicate assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json assets \
+            --jq '.assets[].name' |
+          while IFS= read -r asset; do
+            case "$asset" in
+              VerityPDF.AppImage|VerityPDF.deb|VerityPDF.dmg|VerityPDF.exe|VerityPDF.msi|SHA256SUMS.txt)
+                ;;
+              *)
+                gh release delete-asset "$RELEASE_TAG" "$asset" \
+                  --repo "$GITHUB_REPOSITORY" --yes
+                ;;
+            esac
+          done
 
       - name: Verify assets and publish
         uses: actions/github-script@v9
@@ -235,21 +259,16 @@ jobs:
             }
 
             const expectedAssets = [
-              ".AppImage",
-              ".deb",
-              ".dmg",
-              ".exe",
-              ".msi",
               "VerityPDF.AppImage",
               "VerityPDF.deb",
               "VerityPDF.dmg",
-              "VerityPDF-Setup.exe",
+              "VerityPDF.exe",
               "VerityPDF.msi",
               "SHA256SUMS.txt",
             ];
             const missingAssets = expectedAssets.filter(
-              (suffix) => !release.assets.some(
-                (asset) => asset.name.endsWith(suffix),
+              (expectedName) => !release.assets.some(
+                (asset) => asset.name === expectedName,
               ),
             );
             if (missingAssets.length > 0) {

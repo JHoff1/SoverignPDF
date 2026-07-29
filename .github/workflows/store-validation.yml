@@ -54,7 +54,7 @@ jobs:
       - name: Retain Store package
         uses: actions/upload-artifact@v4
         with:
-          name: sovereignpdf-store-${{ matrix.architecture }}
+          name: veritypdf-store-${{ matrix.architecture }}
           path: |
             src-tauri/target/store/${{ matrix.architecture }}/*.msix
             src-tauri/target/store/${{ matrix.architecture }}/*.sha256
