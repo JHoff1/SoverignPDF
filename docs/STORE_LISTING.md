@@ -11,6 +11,7 @@ maps each repository asset to its Partner Center field.
 - **Developed by:** Jacob Hoffman
 - **Age rating:** Suitable for all ages
 - **Pricing:** Free
+- **Website URL:** https://www.veritypdf.com/
 - **Support URL:** https://github.com/JHoff1/VerityPDF/issues
 - **Privacy policy URL:**
   https://github.com/JHoff1/VerityPDF/blob/main/PRIVACY.md

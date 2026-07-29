@@ -66,6 +66,11 @@ VerityPDF makes no background requests to external services and does not
 disclose your documents, personal information, diagnostics, file names, or file
 paths to the publisher or third parties.
 
+If you explicitly choose **Check for updates**, VerityPDF requests the latest
+public release metadata from GitHub. This request contains no document content,
+file names, file paths, preferences, or diagnostics. VerityPDF does not check
+for updates automatically or in the background.
+
 If you explicitly choose **Report an issue**, VerityPDF opens the project's
 public GitHub issue page in your system browser. It does not automatically
 attach a document or submit diagnostic information. You control what you enter

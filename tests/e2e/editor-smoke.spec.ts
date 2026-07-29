@@ -144,7 +144,9 @@ test("fresh preferences use privacy-conscious save defaults", async ({ page }) =
       name: /Show export summary before saving/
     })
   ).toBeChecked();
-  await expect(page.getByText("Network access is disabled.")).toBeVisible();
+  await expect(
+    page.getByText("No background network requests are made.", { exact: false })
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "About VerityPDF" })
   ).toBeVisible();
@@ -153,6 +155,9 @@ test("fresh preferences use privacy-conscious save defaults", async ({ page }) =
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Source code" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Website" })
   ).toBeVisible();
   await expect(page.getByText("AGPL-3.0")).toBeVisible();
   await expect(
@@ -525,6 +530,9 @@ test("shows document status and provides searchable keyboard shortcuts", async (
     statusBar.getByLabel(/VerityPDF version \d+\.\d+\.\d+/)
   ).toBeVisible();
   await expect(
+    statusBar.getByRole("button", { name: "Check for updates on GitHub" })
+  ).toBeVisible();
+  await expect(
     page.getByRole("main").getByText("Page 1 of 3", { exact: true })
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Next page" }).click();
@@ -544,6 +552,55 @@ test("shows document status and provides searchable keyboard shortcuts", async (
 
   await page.keyboard.press("Control+1");
   await expect(page.getByLabel("Zoom percentage")).toHaveValue("100");
+});
+
+test("checks GitHub for updates only after the user requests it", async ({
+  page
+}) => {
+  const updateApiUrl =
+    "https://api.github.com/repos/JHoff1/VerityPDF/releases/latest";
+  let latestTag = "v999.0.0";
+  let failRequest = false;
+  let requestCount = 0;
+
+  await page.route(updateApiUrl, async (route) => {
+    requestCount += 1;
+    if (failRequest) {
+      await route.abort("failed");
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ tag_name: latestTag })
+    });
+  });
+
+  await page.goto("/");
+  expect(requestCount).toBe(0);
+
+  await page.getByRole("button", { name: "Check for updates on GitHub" }).click();
+  await expect(
+    page.getByRole("button", {
+      name: /New version available: v999\.0\.0; open GitHub release/
+    })
+  ).toBeVisible();
+  expect(requestCount).toBe(1);
+
+  latestTag = "v0.0.0";
+  await page.reload();
+  await page.getByRole("button", { name: "Check for updates on GitHub" }).click();
+  await expect(
+    page.getByRole("button", { name: "VerityPDF is up to date; check again" })
+  ).toBeVisible();
+
+  failRequest = true;
+  await page.reload();
+  await page.getByRole("button", { name: "Check for updates on GitHub" }).click();
+  await expect(
+    page.getByRole("button", { name: "Unable to check for updates; try again" })
+  ).toBeVisible();
+  expect(requestCount).toBe(3);
 });
 
 test("navigates the viewer when a page thumbnail is clicked", async ({

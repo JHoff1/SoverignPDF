@@ -3,6 +3,7 @@ import {
   ExternalLink,
   FileCheck2,
   Github,
+  Globe2,
   Monitor,
   Moon,
   Scale,
@@ -34,6 +35,7 @@ export function PreferencesDialog({
   onReportIssue,
   onOpenPrivacyPolicy,
   onOpenRepository,
+  onOpenWebsite,
   onClose
 }: {
   preferences: AppPreferences;
@@ -51,6 +53,7 @@ export function PreferencesDialog({
   onReportIssue: () => void | Promise<void>;
   onOpenPrivacyPolicy: () => void | Promise<void>;
   onOpenRepository: () => void | Promise<void>;
+  onOpenWebsite: () => void | Promise<void>;
   onClose: () => void;
 }) {
   const updatePreferences = (updates: Partial<AppPreferences>) =>
@@ -131,6 +134,15 @@ export function PreferencesDialog({
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
+                className="inline-flex h-9 items-center gap-2 rounded-md bg-orange-500/15 px-3 text-xs font-semibold text-orange-100 hover:bg-orange-500/25"
+                onClick={() => void onOpenWebsite()}
+              >
+                <Globe2 size={14} />
+                Website
+                <ExternalLink size={12} />
+              </button>
+              <button
+                type="button"
                 className="inline-flex h-9 items-center gap-2 rounded-md bg-blue-500/15 px-3 text-xs font-semibold text-blue-100 hover:bg-blue-500/25"
                 onClick={() => void onOpenPrivacyPolicy()}
               >
@@ -182,7 +194,11 @@ export function PreferencesDialog({
           <WifiOff size={18} className="mt-0.5 shrink-0 text-emerald-300" />
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-zinc-100">Privacy and local data</h3>
-            <p className="mt-1 text-xs leading-5 text-zinc-400">Network access is disabled. Documents, recent file paths, and preferences stay on this computer.</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-400">
+              No background network requests are made. VerityPDF contacts
+              GitHub only when you choose Check for updates; documents, file
+              paths, and preferences are never included.
+            </p>
             <p className="mt-2 text-[11px] text-zinc-500">
               {preferences.recentFiles.length
                 ? `${preferences.recentFiles.length} recent local file path${preferences.recentFiles.length === 1 ? "" : "s"} remembered.`
