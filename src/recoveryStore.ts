@@ -14,6 +14,7 @@ type RecoveryJournal = {
   revisions: RecoverySnapshot[];
 };
 
+// Retain the pre-rebrand database name so recovery snapshots remain available.
 const DATABASE = "sovereignpdf-local-recovery";
 const STORE = "snapshots";
 const MAX_REVISIONS = 5;

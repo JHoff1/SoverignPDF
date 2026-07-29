@@ -120,12 +120,13 @@ import {
 } from "./components/MergeDialog";
 import { ExportSummaryDialog } from "./components/ExportSummaryDialog";
 
+// Keep the pre-rebrand keys to preserve window and session state on upgrade.
 const WINDOW_BOUNDS_KEY = "sovereignpdf.window-bounds.v1";
 const SESSION_KEY = "sovereignpdf.last-session.v1";
-const GITHUB_REPOSITORY_URL = "https://github.com/JHoff1/SoverignPDF";
-const GITHUB_ISSUES_URL = "https://github.com/JHoff1/SoverignPDF/issues/new";
+const GITHUB_REPOSITORY_URL = "https://github.com/JHoff1/VerityPDF";
+const GITHUB_ISSUES_URL = "https://github.com/JHoff1/VerityPDF/issues/new";
 const PRIVACY_POLICY_URL =
-  "https://github.com/JHoff1/SoverignPDF/blob/main/PRIVACY.md";
+  "https://github.com/JHoff1/VerityPDF/blob/main/PRIVACY.md";
 
 type StoredSession = {
   sourcePath: string;
@@ -320,7 +321,7 @@ export default function App() {
   const copyErrorDetails = async () => {
     if (!error) return;
     const details = [
-      "SovereignPDF error report",
+      "VerityPDF error report",
       `Platform: ${navigator.platform || "Unknown"}`,
       `Error: ${error}`
     ].join("\n");
@@ -450,7 +451,7 @@ export default function App() {
           windowLabel: recoveryId
         });
         void getCurrentWindow().setTitle(
-          `${snapshot.fileName} — SovereignPDF`
+          `${snapshot.fileName} — VerityPDF`
         );
         refreshRecoverySnapshots();
         return;
@@ -902,7 +903,7 @@ export default function App() {
     if (isTauri()) {
       const windowLabel = getCurrentWebview().label;
       void invoke("mark_window_document_open", { windowLabel });
-      void getCurrentWindow().setTitle(`${name} — SovereignPDF`);
+      void getCurrentWindow().setTitle(`${name} — VerityPDF`);
     }
     if (path) {
       const normalizedPath = normalizeLocalPath(path);
@@ -1024,7 +1025,7 @@ export default function App() {
           if (path) void loadExternalPdf(path);
         }),
         listen<string>("open-pdf-error", (event) => {
-          setError(`SovereignPDF could not create a document window. ${event.payload}`);
+          setError(`VerityPDF could not create a document window. ${event.payload}`);
         })
       ]);
       const dispose = () => disposers.forEach((unlistenEvent) => unlistenEvent());
@@ -1040,7 +1041,7 @@ export default function App() {
       if (openedPath) await loadExternalPdf(openedPath);
     })().catch((cause) => {
       const detail = errorMessage(cause, "The request could not be completed.");
-      setError(`SovereignPDF could not process the file-open request. ${detail}`);
+      setError(`VerityPDF could not process the file-open request. ${detail}`);
     });
 
     return () => {
@@ -1478,7 +1479,7 @@ export default function App() {
   ) => {
     if (passwordProtected) {
       setError(
-        "This encrypted PDF is open in protected viewing mode. SovereignPDF will not rewrite it because doing so could corrupt its encryption."
+        "This encrypted PDF is open in protected viewing mode. VerityPDF will not rewrite it because doing so could corrupt its encryption."
       );
       return false;
     }
@@ -1953,7 +1954,7 @@ export default function App() {
       if (!isTauri()) {
         downloadBytes(pendingSplitBytes, normalizedName);
         setSuccessMessage(
-          "Your new document has been downloaded. Your original document is untouched and remains loaded in SovereignPDF."
+          "Your new document has been downloaded. Your original document is untouched and remains loaded in VerityPDF."
         );
         setPendingSplitBytes(null);
         setActiveDialog(null);
@@ -1968,7 +1969,7 @@ export default function App() {
       if (!path) return;
       await writeLocalPdfAtomically(path, pendingSplitBytes);
       setSuccessMessage(
-        "Your new document has been saved in the location you selected. Your original document is untouched and remains loaded in SovereignPDF."
+        "Your new document has been saved in the location you selected. Your original document is untouched and remains loaded in VerityPDF."
       );
       setPendingSplitBytes(null);
       setActiveDialog(null);
@@ -2018,7 +2019,7 @@ export default function App() {
     }
     try {
       await invoke("open_default_apps_settings");
-      setPreferenceStatus("Windows Default Apps settings opened. Choose SovereignPDF for .pdf files.");
+      setPreferenceStatus("Windows Default Apps settings opened. Choose VerityPDF for .pdf files.");
     } catch (cause) {
       setPreferenceStatus(
         cause instanceof Error ? cause.message : String(cause)

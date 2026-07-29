@@ -1,24 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="tile" x1="160" y1="96" x2="864" y2="928" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#315aa8"/>
-      <stop offset=".48" stop-color="#142f67"/>
-      <stop offset="1" stop-color="#071a3a"/>
+    <linearGradient id="copper-left" x1="180" y1="180" x2="520" y2="870" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffad79"/>
+      <stop offset=".48" stop-color="#e85b2c"/>
+      <stop offset="1" stop-color="#9f2f1b"/>
     </linearGradient>
-    <linearGradient id="blue" x1="286" y1="302" x2="666" y2="824" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#6fa2f1"/>
-      <stop offset="1" stop-color="#24478f"/>
+    <linearGradient id="copper-right" x1="820" y1="170" x2="530" y2="890" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff9a62"/>
+      <stop offset=".52" stop-color="#d94a24"/>
+      <stop offset="1" stop-color="#842317"/>
     </linearGradient>
-    <linearGradient id="steel" x1="568" y1="296" x2="796" y2="810" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#b5becb"/>
-      <stop offset="1" stop-color="#525e70"/>
+    <linearGradient id="fold" x1="700" y1="170" x2="780" y2="420" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffd0ad"/>
+      <stop offset="1" stop-color="#ef6a39"/>
     </linearGradient>
   </defs>
-  <rect x="32" y="32" width="960" height="960" rx="218" fill="url(#tile)"/>
-  <rect x="39" y="39" width="946" height="946" rx="211" fill="none" stroke="#6790d0" stroke-width="14"/>
-  <path d="M338 249 285 165l104 48 59-102 64 95 66-95 58 102 103-48-52 84Z" fill="#6797e2"/>
-  <path d="M301 328h382l105 105v380H301Z" fill="none" stroke="url(#steel)" stroke-width="42" stroke-linejoin="round"/>
-  <path d="M683 328v105h105" fill="none" stroke="#aab5c5" stroke-width="42" stroke-linejoin="round"/>
-  <path d="M650 352C575 303 430 316 360 396c-73 84-24 180 74 223l116 51c39 17 38 62 3 85-57 38-154 22-219-37" fill="none" stroke="url(#blue)" stroke-width="92" stroke-linecap="round"/>
-  <path d="M650 352C575 303 430 316 360 396c-73 84-24 180 74 223l116 51c39 17 38 62 3 85-57 38-154 22-219-37" fill="none" stroke="#89b3f1" stroke-opacity=".35" stroke-width="12" stroke-linecap="round"/>
+  <path d="M128 190h250l138 408L290 874Z" fill="url(#copper-left)"/>
+  <path d="M896 190H650L508 598l226 276Z" fill="url(#copper-right)"/>
+  <path d="M650 190h246L742 410H650Z" fill="url(#fold)"/>
+  <path d="m650 410 92 0 154-220-88 302Z" fill="#741b14"/>
+  <path d="M128 190 290 874l218 76 226-76 162-684" fill="none" stroke="#ffb080" stroke-opacity=".6" stroke-width="12" stroke-linejoin="round"/>
 </svg>

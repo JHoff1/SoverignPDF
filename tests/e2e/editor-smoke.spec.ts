@@ -7,7 +7,7 @@ async function syntheticPdf() {
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
     const page = pdf.addPage([612, 792]);
-    page.drawText("SovereignPDF Regression Test", {
+    page.drawText("VerityPDF Regression Test", {
       x: 72,
       y: 700,
       size: 24,
@@ -146,7 +146,7 @@ test("fresh preferences use privacy-conscious save defaults", async ({ page }) =
   ).toBeChecked();
   await expect(page.getByText("Network access is disabled.")).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "About SovereignPDF" })
+    page.getByRole("heading", { name: "About VerityPDF" })
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Privacy policy" })
@@ -522,7 +522,7 @@ test("shows document status and provides searchable keyboard shortcuts", async (
   await expect(statusBar).toContainText("612 × 792 pt");
   await expect(statusBar).toContainText("Saved");
   await expect(
-    statusBar.getByLabel(/SovereignPDF version \d+\.\d+\.\d+/)
+    statusBar.getByLabel(/VerityPDF version \d+\.\d+\.\d+/)
   ).toBeVisible();
   await expect(
     page.getByRole("main").getByText("Page 1 of 3", { exact: true })
@@ -791,8 +791,8 @@ test("secure redaction removes underlying text only from affected pages", async 
   const pageTwoText = (await (await pdf.getPage(2)).getTextContent()).items
     .map((item) => "str" in item ? item.str : "")
     .join(" ");
-  expect(pageOneText).not.toContain("SovereignPDF Regression Test");
-  expect(pageTwoText).toContain("SovereignPDF Regression Test");
+  expect(pageOneText).not.toContain("VerityPDF Regression Test");
+  expect(pageTwoText).toContain("VerityPDF Regression Test");
   await pdf.destroy();
 });
 

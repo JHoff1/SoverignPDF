@@ -122,7 +122,7 @@ export function StatusBar({
         ) : null}
       </span>
       <div
-        aria-label={`SovereignPDF version ${version}`}
+        aria-label={`VerityPDF version ${version}`}
         className="flex shrink-0 items-center gap-1.5 border-l border-white/10 pl-3 text-zinc-500"
       >
         <img
@@ -132,7 +132,7 @@ export function StatusBar({
           className="h-5 w-5 rounded-[5px]"
         />
         <span className="hidden font-semibold text-zinc-400 min-[720px]:inline">
-          SovereignPDF
+          VerityPDF
         </span>
         <span className="text-[10px]">v{version}</span>
       </div>

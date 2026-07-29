@@ -37,7 +37,7 @@ export function RecoveryDialog({
   onCancel: () => void;
 }) {
   return (
-    <AppDialog title="Recover unsaved work?" description={`SovereignPDF found a local recovery snapshot from ${new Date(snapshot.updatedAt).toLocaleString()}.`} confirmLabel="Recover" secondaryLabel="Discard snapshot" busy={busy} onSecondary={onDiscard} onCancel={onCancel} onConfirm={onRecover}>
+    <AppDialog title="Recover unsaved work?" description={`VerityPDF found a local recovery snapshot from ${new Date(snapshot.updatedAt).toLocaleString()}.`} confirmLabel="Recover" secondaryLabel="Discard snapshot" busy={busy} onSecondary={onDiscard} onCancel={onCancel} onConfirm={onRecover}>
       <p className="text-xs leading-5 text-zinc-300">Recover changes to <strong>{snapshot.fileName}</strong>. The snapshot is stored only on this device.</p>
     </AppDialog>
   );

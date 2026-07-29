@@ -1,13 +1,13 @@
 [package]
-name = "sovereign-pdf"
+name = "verity-pdf"
 version = "0.1.12"
 description = "A private, local-first PDF editor"
-authors = ["SovereignPDF contributors"]
+authors = ["VerityPDF contributors"]
 edition = "2021"
 license = "AGPL-3.0-or-later"
 
 [lib]
-name = "sovereign_pdf_lib"
+name = "verity_pdf_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

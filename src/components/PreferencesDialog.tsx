@@ -118,7 +118,7 @@ export function PreferencesDialog({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h3 className="text-sm font-semibold text-zinc-100">
-                About SovereignPDF
+                About VerityPDF
               </h3>
               <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] font-semibold text-zinc-400">
                 Version {version}
@@ -163,10 +163,10 @@ export function PreferencesDialog({
           </div>
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-zinc-100">Default PDF application</h3>
-            {desktopPlatform === "windows" && <p className="mt-1 text-xs leading-5 text-zinc-400">SovereignPDF is registered as a PDF editor when installed. Windows requires you to approve the default app in Settings.</p>}
-            {desktopPlatform === "macos" && <p className="mt-1 text-xs leading-5 text-zinc-400">In Finder, select a PDF and choose File → Get Info. Under Open with, select SovereignPDF, then choose Change All.</p>}
-            {desktopPlatform === "linux" && <p className="mt-1 text-xs leading-5 text-zinc-400">After installing the package, right-click a PDF, choose Properties or Open With, select SovereignPDF, and make it the default.</p>}
-            {desktopPlatform === "unknown" && <p className="mt-1 text-xs leading-5 text-zinc-400">Choose SovereignPDF for PDF files in your operating system’s default application settings.</p>}
+            {desktopPlatform === "windows" && <p className="mt-1 text-xs leading-5 text-zinc-400">VerityPDF is registered as a PDF editor when installed. Windows requires you to approve the default app in Settings.</p>}
+            {desktopPlatform === "macos" && <p className="mt-1 text-xs leading-5 text-zinc-400">In Finder, select a PDF and choose File → Get Info. Under Open with, select VerityPDF, then choose Change All.</p>}
+            {desktopPlatform === "linux" && <p className="mt-1 text-xs leading-5 text-zinc-400">After installing the package, right-click a PDF, choose Properties or Open With, select VerityPDF, and make it the default.</p>}
+            {desktopPlatform === "unknown" && <p className="mt-1 text-xs leading-5 text-zinc-400">Choose VerityPDF for PDF files in your operating system’s default application settings.</p>}
           </div>
         </div>
         {desktopPlatform === "windows" && (
@@ -201,7 +201,7 @@ export function PreferencesDialog({
             <Bug size={18} />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-zinc-100">Help improve SovereignPDF</h3>
+            <h3 className="text-sm font-semibold text-zinc-100">Help improve VerityPDF</h3>
             <p className="mt-1 text-xs leading-5 text-zinc-400">
               Report a bug or request a feature on GitHub. This opens your system browser only when you choose it; no document information or diagnostics are sent automatically.
             </p>
@@ -220,7 +220,7 @@ export function PreferencesDialog({
       <section className="mt-3 rounded-lg border border-white/10 bg-black/15 p-4">
         <h3 className="text-sm font-semibold text-zinc-100">Recovery snapshots</h3>
         <p className="mt-1 text-xs leading-5 text-zinc-400">
-          SovereignPDF keeps up to five local revisions for each document window.
+          VerityPDF keeps up to five local revisions for each document window.
         </p>
         <div className="mt-3 overflow-hidden rounded-lg border border-white/10">
           {recoverySnapshots.length ? recoverySnapshots.map((snapshot) => {

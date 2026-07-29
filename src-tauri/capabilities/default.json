@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Local document access for SovereignPDF document windows",
+  "description": "Local document access for VerityPDF document windows",
   "windows": ["main", "document-*"],
   "permissions": [
     "core:default",
@@ -21,13 +21,13 @@
       "identifier": "opener:allow-open-url",
       "allow": [
         {
-          "url": "https://github.com/JHoff1/SoverignPDF/issues*"
+          "url": "https://github.com/JHoff1/VerityPDF/issues*"
         },
         {
-          "url": "https://github.com/JHoff1/SoverignPDF"
+          "url": "https://github.com/JHoff1/VerityPDF"
         },
         {
-          "url": "https://github.com/JHoff1/SoverignPDF/blob/main/PRIVACY.md"
+          "url": "https://github.com/JHoff1/VerityPDF/blob/main/PRIVACY.md"
         }
       ]
     }

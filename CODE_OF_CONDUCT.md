@@ -73,7 +73,7 @@ and this Code of Conduct reinforces encouraged behaviors and norms that can help
 avoid conflicts and minimize harm.
 
 To report a possible violation privately, use the repository's
-[private vulnerability reporting form](https://github.com/JHoff1/SoverignPDF/security/advisories/new).
+[private vulnerability reporting form](https://github.com/JHoff1/VerityPDF/security/advisories/new).
 Please include relevant links, screenshots, or other context when possible. Do
 not open a public issue containing sensitive information.
 

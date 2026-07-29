@@ -93,7 +93,7 @@ $releaseRoot = if ($rustTarget) {
 } else {
     Join-Path -Path $tauriRoot -ChildPath "target\release"
 }
-$executablePath = Join-Path -Path $releaseRoot -ChildPath "sovereign-pdf.exe"
+$executablePath = Join-Path -Path $releaseRoot -ChildPath "verity-pdf.exe"
 
 $expectedStoreRoot = [System.IO.Path]::GetFullPath(
     (Join-Path -Path $repositoryRoot -ChildPath (
@@ -188,7 +188,7 @@ $assetsRoot = New-Item -ItemType Directory -Path (
 $null = New-Item -ItemType Directory -Path $verificationRoot -Force
 
 Copy-Item -LiteralPath $executablePath -Destination (
-    Join-Path -Path $stagingRoot -ChildPath "sovereign-pdf.exe"
+    Join-Path -Path $stagingRoot -ChildPath "verity-pdf.exe"
 )
 
 Add-Type -AssemblyName System.Drawing
@@ -244,7 +244,7 @@ $manifestPath = Join-Path -Path $stagingRoot -ChildPath "AppxManifest.xml"
     [System.Text.UTF8Encoding]::new($false)
 )
 
-$packageName = "SovereignPDF_{0}_{1}.msix" -f $packageVersion, $Architecture
+$packageName = "VerityPDF_{0}_{1}.msix" -f $packageVersion, $Architecture
 $packagePath = Join-Path -Path $storeRoot -ChildPath $packageName
 & $makeAppx.FullName pack /d $stagingRoot /p $packagePath /o /h SHA256
 if ($LASTEXITCODE -ne 0) {

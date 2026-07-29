@@ -92,8 +92,8 @@ fn create_pdf_window(app: &tauri::AppHandle, path: String) -> tauri::Result<()> 
         let title = Path::new(&path)
             .file_name()
             .and_then(|name| name.to_str())
-            .map(|name| format!("{name} — SovereignPDF"))
-            .unwrap_or_else(|| "SovereignPDF".into());
+            .map(|name| format!("{name} — VerityPDF"))
+            .unwrap_or_else(|| "VerityPDF".into());
         (label, title)
     };
 
@@ -125,7 +125,7 @@ fn create_recovery_window(app: tauri::AppHandle, recovery_id: String) -> Result<
     };
 
     let result = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
-        .title("Recovered document — SovereignPDF")
+        .title("Recovered document — VerityPDF")
         .inner_size(1280.0, 820.0)
         .min_inner_size(900.0, 600.0)
         .maximized(true)
@@ -235,7 +235,7 @@ fn read_pdf_file(app: tauri::AppHandle, path: String) -> Result<tauri::ipc::Resp
     if !scope.is_allowed(&path) {
         scope
             .allow_file(&path)
-            .map_err(|error| format!("SovereignPDF could not authorize this local PDF: {error}"))?;
+            .map_err(|error| format!("VerityPDF could not authorize this local PDF: {error}"))?;
     }
     read_pdf_bytes(&path).map(tauri::ipc::Response::new)
 }
@@ -394,7 +394,7 @@ pub fn run() {
             cancel_atomic_pdf_write
         ])
         .build(tauri::generate_context!())
-        .expect("error while building SovereignPDF")
+        .expect("error while building VerityPDF")
         .run(|_app, _event| {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = _event {

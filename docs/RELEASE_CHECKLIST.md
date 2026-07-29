@@ -1,4 +1,4 @@
-# SovereignPDF release checklist
+# VerityPDF release checklist
 
 Complete this checklist on at least one native desktop build before tagging a
 release. Browser preview testing does not exercise the operating system's native
@@ -28,7 +28,7 @@ annotations.
 
 ## Recovery and file-open handoff
 
-- [ ] Launching SovereignPDF by opening a PDF keeps that requested PDF in the original window.
+- [ ] Launching VerityPDF by opening a PDF keeps that requested PDF in the original window.
 - [ ] An available crash snapshot appears as a non-blocking recovered-work notice.
 - [ ] Open in new window restores the snapshot without replacing the requested PDF.
 - [ ] A failed recovery-window creation leaves the notice and snapshot available.
