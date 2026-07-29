@@ -22,6 +22,7 @@ export type AppPreferences = {
   showExportSummary: boolean;
 };
 
+// Retain the pre-rebrand storage key so existing users keep their settings.
 export const PREFERENCES_KEY = "sovereignpdf.preferences.v1";
 
 export const DEFAULT_PREFERENCES: AppPreferences = {

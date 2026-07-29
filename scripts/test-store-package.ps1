@@ -1,7 +1,7 @@
 param(
   [string]$PackagePath = (
     Join-Path $PSScriptRoot `
-      "..\src-tauri\target\store\x64\SovereignPDF_0.1.12.0_x64.msix"
+      "..\src-tauri\target\store\x64\VerityPDF_0.1.13.0_x64.msix"
   )
 )
 
@@ -31,7 +31,7 @@ $resolvedPackage = (Resolve-Path -LiteralPath $PackagePath).Path
 $reportDirectory = Join-Path $PSScriptRoot `
   "..\src-tauri\target\store\certification"
 New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
-$reportPath = Join-Path $reportDirectory "SovereignPDF-WACK-report.xml"
+$reportPath = Join-Path $reportDirectory "VerityPDF-WACK-report.xml"
 
 Write-Host "Resetting Windows App Certification Kit..."
 & $appCert reset

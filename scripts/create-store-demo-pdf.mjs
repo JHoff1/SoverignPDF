@@ -7,7 +7,7 @@ import {
 } from "pdf-lib";
 
 const outputPath = resolve(
-  process.argv[2] ?? "src-tauri/target/store/SovereignPDF-Store-Demo.pdf"
+  process.argv[2] ?? "src-tauri/target/store/VerityPDF-Store-Demo.pdf"
 );
 const pdf = await PDFDocument.create();
 const regular = await pdf.embedFont(StandardFonts.Helvetica);
@@ -32,7 +32,7 @@ function addHeader(page, section) {
     height: 72,
     color: colors.navy
   });
-  page.drawText("SOVEREIGNPDF", {
+  page.drawText("VERITYPDF", {
     x: 42,
     y: height - 43,
     size: 17,
@@ -123,7 +123,7 @@ function addWrappedText(page, text, x, y, maxWidth, size, lineHeight) {
   });
   addWrappedText(
     page,
-    "SovereignPDF keeps viewing, editing, search, OCR, annotations, and export on your computer. Your documents remain private and under your control.",
+    "VerityPDF keeps viewing, editing, search, OCR, annotations, and export on your computer. Your documents remain private and under your control.",
     42,
     584,
     520,
@@ -295,7 +295,7 @@ function addWrappedText(page, text, x, y, maxWidth, size, lineHeight) {
   });
   addWrappedText(
     page,
-    "Before saving, SovereignPDF summarizes what will happen to annotations, redactions, forms, metadata, and the estimated output size.",
+    "Before saving, VerityPDF summarizes what will happen to annotations, redactions, forms, metadata, and the estimated output size.",
     42,
     622,
     520,

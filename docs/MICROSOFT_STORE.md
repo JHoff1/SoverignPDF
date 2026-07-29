@@ -1,6 +1,6 @@
 # Microsoft Store release
 
-SovereignPDF uses a separate MSIX package for Microsoft Store distribution.
+VerityPDF uses a separate MSIX package for Microsoft Store distribution.
 The existing NSIS and MSI installers remain available through GitHub Releases.
 
 ## Partner Center identity
@@ -18,6 +18,11 @@ Partner Center validates `PublisherDisplayName` against the verified publisher
 name associated with the developer account, even if the Product identity page
 still displays an older friendly name. The technical package name and
 certificate publisher must continue to match the Product identity page exactly.
+
+The package identity and Store application ID intentionally retain their
+original SovereignPDF values after the VerityPDF rebrand. They are immutable
+compatibility identifiers for the existing Partner Center product; customers
+see **VerityPDF** through the package display-name fields.
 
 ## Build the MSIX
 

@@ -1,12 +1,16 @@
-# SovereignPDF
+<p align="center">
+  <img src="branding/verity-mark.png" alt="VerityPDF logo" width="160">
+</p>
+
+# VerityPDF
 
 > A lightweight, private, open-source desktop PDF editor with no subscriptions,
 > cloud uploads, telemetry, or paywalls.
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
-[![Build desktop release](https://github.com/JHoff1/SoverignPDF/actions/workflows/release.yml/badge.svg)](https://github.com/JHoff1/SoverignPDF/actions/workflows/release.yml)
+[![Build desktop release](https://github.com/JHoff1/VerityPDF/actions/workflows/release.yml/badge.svg)](https://github.com/JHoff1/VerityPDF/actions/workflows/release.yml)
 
-SovereignPDF is a cross-platform PDF editor for Windows, macOS, and Linux.
+VerityPDF is a cross-platform PDF editor for Windows, macOS, and Linux.
 Documents are opened, rendered, edited, and exported entirely on your device.
 The application makes no external API calls and contains no analytics,
 advertising, cloud processing, account system, or paid features.
@@ -115,7 +119,7 @@ header.
 ## Install
 
 Download the installer for your operating system from the
-[latest GitHub release](https://github.com/JHoff1/SoverignPDF/releases/latest):
+[latest GitHub release](https://github.com/JHoff1/VerityPDF/releases/latest):
 
 | Platform | Package |
 | --- | --- |
@@ -212,7 +216,7 @@ bytes into the viewport, while pdf-lib performs structural changes and export.
 
 ## Privacy and security
 
-SovereignPDF is designed to process documents without transmitting them:
+VerityPDF is designed to process documents without transmitting them:
 
 - No HTTP client is used by the application.
 - No telemetry or crash analytics are included.
@@ -226,7 +230,7 @@ SovereignPDF is designed to process documents without transmitting them:
 Dependency installation and update checks performed by development tools are
 separate from the installed application's document-processing behavior.
 
-See the full [SovereignPDF Privacy Policy](PRIVACY.md) for details about local
+See the full [VerityPDF Privacy Policy](PRIVACY.md) for details about local
 document access, recovery storage, user controls, and third-party distribution
 services.
 
@@ -265,6 +269,6 @@ Participation in the project is governed by the
 
 ## License
 
-SovereignPDF is licensed under the
+VerityPDF is licensed under the
 [GNU Affero General Public License version 3](LICENSE). The GitHub repository
 contains the full license text.

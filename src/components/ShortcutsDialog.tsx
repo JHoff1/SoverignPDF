@@ -46,7 +46,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
   return (
     <AppDialog
       title="Keyboard shortcuts"
-      description={`Showing shortcuts for ${platformName}. Search the commands available throughout SovereignPDF.`}
+      description={`Showing shortcuts for ${platformName}. Search the commands available throughout VerityPDF.`}
       confirmLabel="Done"
       onCancel={onClose}
       onConfirm={onClose}

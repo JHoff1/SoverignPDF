@@ -61,7 +61,7 @@ export function ExportSummaryDialog({
   return (
     <AppDialog
       title="Review export"
-      description="Confirm how SovereignPDF will prepare this document before it is written."
+      description="Confirm how VerityPDF will prepare this document before it is written."
       confirmLabel={saveAs ? "Continue to Save As" : "Continue to Save"}
       onCancel={onCancel}
       onConfirm={onContinue}

@@ -15,43 +15,43 @@ $maximumBytes = 5MB
 
 $requiredAssets = @(
     @{
-        Name = "SovereignPDF-Poster-720x1080.png"
+        Name = "VerityPDF-Poster-720x1080.png"
         Width = 720
         Height = 1080
         TransparentCorners = $false
     },
     @{
-        Name = "SovereignPDF-Poster-1440x2160.png"
+        Name = "VerityPDF-Poster-1440x2160.png"
         Width = 1440
         Height = 2160
         TransparentCorners = $false
     },
     @{
-        Name = "SovereignPDF-BoxArt-1080x1080.png"
+        Name = "VerityPDF-BoxArt-1080x1080.png"
         Width = 1080
         Height = 1080
         TransparentCorners = $false
     },
     @{
-        Name = "SovereignPDF-BoxArt-2160x2160.png"
+        Name = "VerityPDF-BoxArt-2160x2160.png"
         Width = 2160
         Height = 2160
         TransparentCorners = $false
     },
     @{
-        Name = "SovereignPDF-AppTile-300x300.png"
+        Name = "VerityPDF-AppTile-300x300.png"
         Width = 300
         Height = 300
         TransparentCorners = $true
     },
     @{
-        Name = "SovereignPDF-StoreLogo-150x150.png"
+        Name = "VerityPDF-StoreLogo-150x150.png"
         Width = 150
         Height = 150
         TransparentCorners = $true
     },
     @{
-        Name = "SovereignPDF-StoreLogo-71x71.png"
+        Name = "VerityPDF-StoreLogo-71x71.png"
         Width = 71
         Height = 71
         TransparentCorners = $true

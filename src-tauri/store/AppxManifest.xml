@@ -12,7 +12,7 @@
     ProcessorArchitecture="__PROCESSOR_ARCHITECTURE__" />
 
   <Properties>
-    <DisplayName>SovereignPDF</DisplayName>
+    <DisplayName>VerityPDF</DisplayName>
     <PublisherDisplayName>Jacob Hoffman</PublisherDisplayName>
     <Description>A private, local-first PDF editor.</Description>
     <Logo>Assets\StoreLogo.png</Logo>
@@ -32,15 +32,15 @@
   <Applications>
     <Application
       Id="SovereignPDF"
-      Executable="sovereign-pdf.exe"
+      Executable="verity-pdf.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="SovereignPDF"
+        DisplayName="VerityPDF"
         Description="A private, local-first PDF editor."
         BackgroundColor="#111827"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile ShortName="SovereignPDF" />
+        <uap:DefaultTile ShortName="VerityPDF" />
       </uap:VisualElements>
       <Extensions>
         <uap:Extension Category="windows.fileTypeAssociation">
