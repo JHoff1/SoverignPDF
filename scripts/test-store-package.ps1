@@ -1,7 +1,7 @@
 param(
   [string]$PackagePath = (
     Join-Path $PSScriptRoot `
-      "..\src-tauri\target\store\x64\SovereignPDF_0.1.11.0_x64.msix"
+      "..\src-tauri\target\store\x64\SovereignPDF_0.1.12.0_x64.msix"
   )
 )
 
