@@ -119,11 +119,21 @@ import {
   type MergeCandidate
 } from "./components/MergeDialog";
 import { ExportSummaryDialog } from "./components/ExportSummaryDialog";
+import {
+  isReleaseNewer,
+  normalizeReleaseVersion,
+  type UpdateCheckStatus
+} from "./lib/updateCheck";
+import { version as APP_VERSION } from "../package.json";
 
 // Keep the pre-rebrand keys to preserve window and session state on upgrade.
 const WINDOW_BOUNDS_KEY = "sovereignpdf.window-bounds.v1";
 const SESSION_KEY = "sovereignpdf.last-session.v1";
 const GITHUB_REPOSITORY_URL = "https://github.com/JHoff1/VerityPDF";
+const WEBSITE_URL = "https://www.veritypdf.com/";
+const GITHUB_RELEASES_URL = `${GITHUB_REPOSITORY_URL}/releases/latest`;
+const GITHUB_RELEASE_API_URL =
+  "https://api.github.com/repos/JHoff1/VerityPDF/releases/latest";
 const GITHUB_ISSUES_URL = "https://github.com/JHoff1/VerityPDF/issues/new";
 const PRIVACY_POLICY_URL =
   "https://github.com/JHoff1/VerityPDF/blob/main/PRIVACY.md";
@@ -280,6 +290,8 @@ export default function App() {
   const [mergeCandidates, setMergeCandidates] = useState<MergeCandidate[]>([]);
   const [successMessage, setSuccessMessage] = useState("");
   const [preferenceStatus, setPreferenceStatus] = useState("");
+  const [updateStatus, setUpdateStatus] = useState<UpdateCheckStatus>("idle");
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [passwordValue, setPasswordValue] = useState("");
   const [passwordIncorrect, setPasswordIncorrect] = useState(false);
   const [passwordProtected, setPasswordProtected] = useState(false);
@@ -317,6 +329,32 @@ export default function App() {
       GITHUB_ISSUES_URL,
       "The GitHub issue page could not be opened."
     );
+
+  const checkForUpdates = async () => {
+    if (updateStatus === "checking") return;
+    setUpdateStatus("checking");
+    setLatestVersion(null);
+    try {
+      const response = await fetch(GITHUB_RELEASE_API_URL, {
+        headers: {
+          Accept: "application/vnd.github+json"
+        },
+        cache: "no-store"
+      });
+      if (!response.ok) throw new Error(`GitHub returned ${response.status}.`);
+
+      const release = await response.json() as { tag_name?: unknown };
+      const releaseVersion = normalizeReleaseVersion(release.tag_name);
+      if (!releaseVersion) throw new Error("GitHub returned an invalid release version.");
+
+      setLatestVersion(releaseVersion);
+      setUpdateStatus(
+        isReleaseNewer(releaseVersion, APP_VERSION) ? "available" : "current"
+      );
+    } catch {
+      setUpdateStatus("unavailable");
+    }
+  };
 
   const copyErrorDetails = async () => {
     if (!error) return;
@@ -2369,6 +2407,10 @@ export default function App() {
             GITHUB_REPOSITORY_URL,
             "The project repository could not be opened."
           )}
+          onOpenWebsite={() => openExternalProjectPage(
+            WEBSITE_URL,
+            "The VerityPDF website could not be opened."
+          )}
           onClose={() => setActiveDialog(null)}
         />
       )}
@@ -2935,6 +2977,17 @@ export default function App() {
         activity={backgroundActivity}
         onPreviousPage={() => jumpToPage(currentPage - 1)}
         onNextPage={() => jumpToPage(currentPage + 1)}
+        updateStatus={updateStatus}
+        latestVersion={latestVersion}
+        onCheckForUpdates={() => {
+          void checkForUpdates();
+        }}
+        onOpenLatestRelease={() => {
+          void openExternalProjectPage(
+            GITHUB_RELEASES_URL,
+            "The VerityPDF releases page could not be opened."
+          );
+        }}
       />
     </div>
   );

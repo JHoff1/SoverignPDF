@@ -27,7 +27,13 @@
           "url": "https://github.com/JHoff1/VerityPDF"
         },
         {
+          "url": "https://github.com/JHoff1/VerityPDF/releases/latest"
+        },
+        {
           "url": "https://github.com/JHoff1/VerityPDF/blob/main/PRIVACY.md"
+        },
+        {
+          "url": "https://www.veritypdf.com/"
         }
       ]
     }

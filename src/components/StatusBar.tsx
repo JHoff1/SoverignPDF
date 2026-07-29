@@ -1,14 +1,18 @@
 import {
+  CircleAlert,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CircleDot,
   FileText,
+  Download,
   LoaderCircle,
   Maximize2,
+  RefreshCw,
   ScanText
 } from "lucide-react";
 import { version } from "../../package.json";
+import type { UpdateCheckStatus } from "../lib/updateCheck";
 
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
@@ -32,7 +36,11 @@ export function StatusBar({
   dirty,
   activity,
   onPreviousPage,
-  onNextPage
+  onNextPage,
+  updateStatus,
+  latestVersion,
+  onCheckForUpdates,
+  onOpenLatestRelease
 }: {
   currentPage: number;
   pageCount: number;
@@ -45,10 +53,46 @@ export function StatusBar({
   activity: string;
   onPreviousPage: () => void;
   onNextPage: () => void;
+  updateStatus: UpdateCheckStatus;
+  latestVersion: string | null;
+  onCheckForUpdates: () => void;
+  onOpenLatestRelease: () => void;
 }) {
   const dimensions = width && height
     ? `${Math.round(width)} × ${Math.round(height)} pt`
     : "No page selected";
+  const updatePresentation = {
+    idle: {
+      label: "Check for updates",
+      ariaLabel: "Check for updates on GitHub",
+      className: "text-zinc-400 hover:text-zinc-100",
+      icon: <RefreshCw size={12} aria-hidden="true" />
+    },
+    checking: {
+      label: "Checking…",
+      ariaLabel: "Checking GitHub for updates",
+      className: "text-zinc-300",
+      icon: <LoaderCircle size={12} className="animate-spin" aria-hidden="true" />
+    },
+    current: {
+      label: "Up to date",
+      ariaLabel: "VerityPDF is up to date; check again",
+      className: "text-emerald-300 hover:text-emerald-200",
+      icon: <CheckCircle2 size={12} aria-hidden="true" />
+    },
+    available: {
+      label: "New version available",
+      ariaLabel: `New version available${latestVersion ? `: ${latestVersion}` : ""}; open GitHub release`,
+      className: "text-orange-300 hover:text-orange-200",
+      icon: <Download size={12} aria-hidden="true" />
+    },
+    unavailable: {
+      label: "Unable to check",
+      ariaLabel: "Unable to check for updates; try again",
+      className: "text-rose-300 hover:text-rose-200",
+      icon: <CircleAlert size={12} aria-hidden="true" />
+    }
+  }[updateStatus];
 
   return (
     <footer
@@ -121,20 +165,38 @@ export function StatusBar({
           </>
         ) : null}
       </span>
-      <div
-        aria-label={`VerityPDF version ${version}`}
-        className="flex shrink-0 items-center gap-1.5 border-l border-white/10 pl-3 text-zinc-500"
-      >
-        <img
-          src="/app-icon.png"
-          alt=""
-          aria-hidden="true"
-          className="h-5 w-5 rounded-[5px]"
-        />
-        <span className="hidden font-semibold text-zinc-400 min-[720px]:inline">
-          VerityPDF
-        </span>
-        <span className="text-[10px]">v{version}</span>
+      <div className="flex shrink-0 items-center border-l border-white/10 pl-2">
+        <button
+          type="button"
+          aria-label={updatePresentation.ariaLabel}
+          className={`flex h-7 items-center gap-1.5 rounded-md px-2 font-medium transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 disabled:cursor-wait ${updatePresentation.className}`}
+          disabled={updateStatus === "checking"}
+          onClick={
+            updateStatus === "available"
+              ? onOpenLatestRelease
+              : onCheckForUpdates
+          }
+        >
+          {updatePresentation.icon}
+          <span className="hidden min-[1020px]:inline">
+            {updatePresentation.label}
+          </span>
+        </button>
+        <div
+          aria-label={`VerityPDF version ${version}`}
+          className="ml-1 flex items-center gap-1.5 border-l border-white/10 pl-3 text-zinc-500"
+        >
+          <img
+            src="/app-icon.png"
+            alt=""
+            aria-hidden="true"
+            className="h-5 w-5 rounded-[5px]"
+          />
+          <span className="hidden font-semibold text-zinc-400 min-[720px]:inline">
+            VerityPDF
+          </span>
+          <span className="text-[10px]">v{version}</span>
+        </div>
       </div>
     </footer>
   );

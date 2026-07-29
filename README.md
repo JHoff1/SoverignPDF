@@ -10,10 +10,15 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Build desktop release](https://github.com/JHoff1/VerityPDF/actions/workflows/release.yml/badge.svg)](https://github.com/JHoff1/VerityPDF/actions/workflows/release.yml)
 
+[Website](https://www.veritypdf.com/) ·
+[Downloads](https://github.com/JHoff1/VerityPDF/releases/latest) ·
+[Report an issue](https://github.com/JHoff1/VerityPDF/issues)
+
 VerityPDF is a cross-platform PDF editor for Windows, macOS, and Linux.
 Documents are opened, rendered, edited, and exported entirely on your device.
-The application makes no external API calls and contains no analytics,
-advertising, cloud processing, account system, or paid features.
+The application makes no background network requests and contains no analytics,
+advertising, cloud processing, account system, or paid features. It contacts
+GitHub only when you explicitly choose **Check for updates**.
 
 ## Highlights
 
@@ -218,7 +223,9 @@ bytes into the viewport, while pdf-lib performs structural changes and export.
 
 VerityPDF is designed to process documents without transmitting them:
 
-- No HTTP client is used by the application.
+- No background HTTP requests are made. The only in-app request occurs when
+  the user explicitly chooses **Check for updates**, and it retrieves public
+  release metadata from GitHub without document or diagnostic data.
 - No telemetry or crash analytics are included.
 - No advertising or user tracking is included.
 - No account or cloud synchronization exists.
