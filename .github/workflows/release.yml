@@ -85,7 +85,11 @@ jobs:
             librsvg2-dev \
             patchelf \
             libfuse2 \
-            squashfs-tools
+            squashfs-tools \
+            xvfb \
+            xdotool \
+            imagemagick \
+            desktop-file-utils
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -123,6 +127,10 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      - name: Create package smoke-test PDF
+        if: matrix.platform != 'windows-latest'
+        run: node scripts/create-store-demo-pdf.mjs "$RUNNER_TEMP/VerityPDF Smoke Test.pdf"
+
       - name: Repair and verify AppImage entry-point permissions
         if: matrix.platform == 'ubuntu-22.04'
         shell: bash
@@ -130,6 +138,65 @@ jobs:
           appimage_path="$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
           test -n "$appimage_path"
           bash scripts/repack-appimage.sh "$appimage_path"
+
+      - name: Install and validate Linux packages
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          mkdir -p smoke-artifacts
+          deb_path="$(find src-tauri/target/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          appimage_path="$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$deb_path"
+          test -n "$appimage_path"
+          sudo apt-get install -y "$PWD/$deb_path"
+
+          package_name="$(dpkg-deb -f "$deb_path" Package)"
+          installed_binary="$(dpkg -L "$package_name" | grep -E '^/usr/bin/' | head -n 1)"
+          desktop_entry="$(dpkg -L "$package_name" | grep -E '^/usr/share/applications/.*\.desktop$' | head -n 1)"
+
+          test -x "$installed_binary"
+          test -f "$desktop_entry"
+          desktop-file-validate "$desktop_entry"
+          grep -Eq '^MimeType=.*application/pdf' "$desktop_entry"
+          xdg-mime query filetype "$RUNNER_TEMP/VerityPDF Smoke Test.pdf" | grep -Fx 'application/pdf'
+          cp "$desktop_entry" smoke-artifacts/deb-desktop-entry.desktop
+          ldd "$installed_binary" | tee smoke-artifacts/deb-ldd.txt
+          if grep -q 'not found' smoke-artifacts/deb-ldd.txt; then
+            echo "The installed DEB has unresolved shared-library dependencies." >&2
+            exit 1
+          fi
+
+          bash scripts/smoke-linux-window.sh \
+            deb \
+            "$installed_binary" \
+            "$RUNNER_TEMP/VerityPDF Smoke Test.pdf" \
+            smoke-artifacts \
+            "$desktop_entry"
+          bash scripts/smoke-linux-window.sh \
+            appimage \
+            "$appimage_path" \
+            "$RUNNER_TEMP/VerityPDF Smoke Test.pdf" \
+            smoke-artifacts
+
+      - name: Mount and validate universal macOS DMG
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          dmg_path="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$dmg_path"
+          bash scripts/smoke-macos-dmg.sh \
+            "$dmg_path" \
+            "$RUNNER_TEMP/VerityPDF Smoke Test.pdf" \
+            smoke-artifacts
+
+      - name: Retain package smoke-test diagnostics
+        if: failure() && matrix.platform != 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: veritypdf-${{ matrix.name }}-smoke-diagnostics
+          path: smoke-artifacts
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Replace draft AppImage with repaired package
         if: matrix.platform == 'ubuntu-22.04'

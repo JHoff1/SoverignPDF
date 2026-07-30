@@ -88,8 +88,8 @@ jobs:
       - name: Run native regression tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
-  appimage:
-    name: AppImage packaging smoke test
+  linux-packages:
+    name: Linux package smoke tests
     runs-on: ubuntu-22.04
 
     steps:
@@ -106,7 +106,10 @@ jobs:
             patchelf \
             libfuse2 \
             squashfs-tools \
-            xvfb
+            xvfb \
+            xdotool \
+            imagemagick \
+            desktop-file-utils
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -125,8 +128,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build AppImage
-        run: npm run tauri -- build --bundles appimage
+      - name: Build Linux packages
+        run: npm run tauri -- build --bundles deb,appimage
+
+      - name: Create smoke-test PDF
+        run: node scripts/create-store-demo-pdf.mjs "$RUNNER_TEMP/VerityPDF Smoke Test.pdf"
 
       - name: Repair and verify AppImage entry-point permissions
         shell: bash
@@ -135,18 +141,105 @@ jobs:
           test -n "$appimage_path"
           bash scripts/repack-appimage.sh "$appimage_path"
 
-      - name: Launch AppImage
+      - name: Install and validate DEB
+        shell: bash
+        run: |
+          mkdir -p smoke-artifacts
+          deb_path="$(find src-tauri/target/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -n "$deb_path"
+          sudo apt-get install -y "$PWD/$deb_path"
+
+          package_name="$(dpkg-deb -f "$deb_path" Package)"
+          installed_binary="$(dpkg -L "$package_name" | grep -E '^/usr/bin/' | head -n 1)"
+          desktop_entry="$(dpkg -L "$package_name" | grep -E '^/usr/share/applications/.*\.desktop$' | head -n 1)"
+
+          test -x "$installed_binary"
+          test -f "$desktop_entry"
+          desktop-file-validate "$desktop_entry"
+          grep -Eq '^MimeType=.*application/pdf' "$desktop_entry"
+          xdg-mime query filetype "$RUNNER_TEMP/VerityPDF Smoke Test.pdf" | grep -Fx 'application/pdf'
+          cp "$desktop_entry" smoke-artifacts/deb-desktop-entry.desktop
+          ldd "$installed_binary" | tee smoke-artifacts/deb-ldd.txt
+          if grep -q 'not found' smoke-artifacts/deb-ldd.txt; then
+            echo "The installed DEB has unresolved shared-library dependencies." >&2
+            exit 1
+          fi
+
+          bash scripts/smoke-linux-window.sh \
+            deb \
+            "$installed_binary" \
+            "$RUNNER_TEMP/VerityPDF Smoke Test.pdf" \
+            smoke-artifacts \
+            "$desktop_entry"
+
+      - name: Validate AppImage behavior
         shell: bash
         run: |
           appimage_path="$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
           test -n "$appimage_path"
-          xvfb-run -a "$appimage_path" >appimage-launch.log 2>&1 &
-          app_pid=$!
-          sleep 15
-          if ! kill -0 "$app_pid" 2>/dev/null; then
-            wait "$app_pid" || true
-            cat appimage-launch.log
-            exit 1
-          fi
-          kill "$app_pid"
-          wait "$app_pid" || true
+          bash scripts/smoke-linux-window.sh \
+            appimage \
+            "$appimage_path" \
+            "$RUNNER_TEMP/VerityPDF Smoke Test.pdf" \
+            smoke-artifacts
+
+      - name: Retain Linux smoke-test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veritypdf-linux-smoke-diagnostics
+          path: smoke-artifacts
+          if-no-files-found: warn
+          retention-days: 14
+
+  macos-package:
+    name: macOS universal DMG smoke test
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build universal DMG
+        run: npm run tauri -- build --bundles dmg --target universal-apple-darwin
+
+      - name: Create smoke-test PDF
+        run: node scripts/create-store-demo-pdf.mjs "$RUNNER_TEMP/VerityPDF Smoke Test.pdf"
+
+      - name: Mount and validate universal DMG
+        shell: bash
+        run: |
+          dmg_path="$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          test -n "$dmg_path"
+          bash scripts/smoke-macos-dmg.sh \
+            "$dmg_path" \
+            "$RUNNER_TEMP/VerityPDF Smoke Test.pdf" \
+            smoke-artifacts
+
+      - name: Retain macOS smoke-test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veritypdf-macos-smoke-diagnostics
+          path: smoke-artifacts
+          if-no-files-found: warn
+          retention-days: 14

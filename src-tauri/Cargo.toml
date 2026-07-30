@@ -1,6 +1,6 @@
 [package]
 name = "verity-pdf"
-version = "0.1.16"
+version = "0.1.17"
 description = "A private, local-first PDF editor"
 authors = ["VerityPDF contributors"]
 homepage = "https://www.veritypdf.com/"

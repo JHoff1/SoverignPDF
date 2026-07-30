@@ -191,13 +191,26 @@ fn opened_recovery_id(app: tauri::AppHandle, window_label: String) -> Option<Str
         .cloned()
 }
 
+fn write_smoke_ready_file(marker: &Path, opened_path: &Path) -> std::io::Result<()> {
+    std::fs::write(marker, opened_path.to_string_lossy().as_bytes())
+}
+
 #[tauri::command]
 fn mark_window_document_open(app: tauri::AppHandle, window_label: String) {
     let opened_state = app.state::<OpenedPdfs>();
     let mut opened = opened_state.0.lock().unwrap();
-    opened.pending_by_window.remove(&window_label);
+    let opened_path = opened.pending_by_window.remove(&window_label);
     opened.pending_recovery_by_window.remove(&window_label);
     opened.occupied_windows.insert(window_label);
+    drop(opened);
+
+    if let (Some(opened_path), Some(marker)) =
+        (opened_path, std::env::var_os("VERITYPDF_SMOKE_READY_FILE"))
+    {
+        if let Err(error) = write_smoke_ready_file(Path::new(&marker), Path::new(&opened_path)) {
+            eprintln!("Could not write the package smoke-test marker: {error}");
+        }
+    }
 }
 
 fn read_pdf_bytes(path: &Path) -> Result<Vec<u8>, String> {
@@ -413,7 +426,7 @@ pub fn run() {
 mod tests {
     use super::{
         atomic_temp_path, pdf_path_from_argument, read_pdf_bytes, replace_pdf_file,
-        reserve_recovery_window, OpenedPdfState,
+        reserve_recovery_window, write_smoke_ready_file, OpenedPdfState,
     };
     use std::{
         fs,
@@ -488,6 +501,26 @@ mod tests {
                 .map(String::as_str),
             Some("main")
         );
+    }
+
+    #[test]
+    fn smoke_marker_records_the_loaded_pdf_path() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let folder = std::env::temp_dir().join(format!("veritypdf-smoke-test-{nonce}"));
+        fs::create_dir_all(&folder).unwrap();
+        let marker = folder.join("ready.txt");
+        let document = folder.join("VerityPDF Smoke Test.pdf");
+
+        write_smoke_ready_file(&marker, &document).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&marker).unwrap(),
+            document.to_string_lossy()
+        );
+        fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]
