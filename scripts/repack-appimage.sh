@@ -62,7 +62,8 @@ chmod 0755 "$runtime_path"
 mksquashfs "$app_dir" "$squashfs_path" \
   -all-root \
   -noappend \
-  -comp xz \
+  -comp zstd \
+  -Xcompression-level 19 \
   -quiet
 
 cat "$runtime_path" "$squashfs_path" >"$repaired_path"
