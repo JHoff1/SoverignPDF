@@ -1,7 +1,7 @@
 {
   "name": "verity-pdf",
   "private": true,
-  "version": "0.1.13",
+  "version": "0.1.14",
   "homepage": "https://www.veritypdf.com/",
   "repository": {
     "type": "git",

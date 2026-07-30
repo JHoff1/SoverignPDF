@@ -237,6 +237,19 @@ $manifest = (Get-Content -LiteralPath $manifestTemplatePath -Raw).Replace(
     "__PROCESSOR_ARCHITECTURE__",
     $Architecture
 )
+
+$requiredManifestValues = @(
+    'Name="jhoff1.VerityPDF"',
+    'Publisher="CN=1561B86F-CE73-4D7B-8F44-C60003C93D75"',
+    '<PublisherDisplayName>Jacob Hoffman</PublisherDisplayName>',
+    'Id="VerityPDF"'
+)
+foreach ($requiredValue in $requiredManifestValues) {
+    if (-not $manifest.Contains($requiredValue)) {
+        throw "The Store manifest is missing required Partner Center identity value: $requiredValue"
+    }
+}
+
 $manifestPath = Join-Path -Path $stagingRoot -ChildPath "AppxManifest.xml"
 [System.IO.File]::WriteAllText(
     $manifestPath,
