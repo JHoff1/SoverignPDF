@@ -12,6 +12,35 @@ $assetRoot = Join-Path -Path $repositoryRoot -ChildPath (
 )
 $screenshotRoot = Join-Path -Path $assetRoot -ChildPath "screenshots"
 $maximumBytes = 5MB
+$pngSignature = [byte[]]@(137, 80, 78, 71, 13, 10, 26, 10)
+
+function Assert-PngFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        if ($stream.Length -lt $pngSignature.Length) {
+            throw "$Name is too small to be a valid PNG file."
+        }
+
+        foreach ($expectedByte in $pngSignature) {
+            if ($stream.ReadByte() -ne $expectedByte) {
+                throw (
+                    "$Name does not contain a valid PNG file signature. " +
+                    "Re-export it as PNG instead of changing its extension."
+                )
+            }
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
 
 $requiredAssets = @(
     @{
@@ -73,6 +102,7 @@ $results = foreach ($asset in $requiredAssets) {
         throw "Required Store asset is missing: $path"
     }
 
+    Assert-PngFile -Path $path -Name $asset.Name
     $file = Get-Item -LiteralPath $path
     if ($file.Length -ge $maximumBytes) {
         throw (
@@ -121,6 +151,7 @@ $screenshotResults = foreach ($name in $requiredScreenshots) {
         throw "Required Store screenshot is missing: $path"
     }
 
+    Assert-PngFile -Path $path -Name $name
     $file = Get-Item -LiteralPath $path
     if ($file.Length -ge $maximumBytes) {
         throw "$name exceeds the 5 MB Store image limit."
