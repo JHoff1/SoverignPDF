@@ -87,3 +87,66 @@ jobs:
 
       - name: Run native regression tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+  appimage:
+    name: AppImage packaging smoke test
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libfuse2 \
+            squashfs-tools \
+            xvfb
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build AppImage
+        run: npm run tauri -- build --bundles appimage
+
+      - name: Repair and verify AppImage entry-point permissions
+        shell: bash
+        run: |
+          appimage_path="$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$appimage_path"
+          bash scripts/repack-appimage.sh "$appimage_path"
+
+      - name: Launch AppImage
+        shell: bash
+        run: |
+          appimage_path="$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$appimage_path"
+          xvfb-run -a "$appimage_path" >appimage-launch.log 2>&1 &
+          app_pid=$!
+          sleep 15
+          if ! kill -0 "$app_pid" 2>/dev/null; then
+            wait "$app_pid" || true
+            cat appimage-launch.log
+            exit 1
+          fi
+          kill "$app_pid"
+          wait "$app_pid" || true

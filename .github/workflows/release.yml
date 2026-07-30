@@ -84,7 +84,8 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
-            libfuse2
+            libfuse2 \
+            squashfs-tools
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -121,6 +122,27 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Repair and verify AppImage entry-point permissions
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          appimage_path="$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$appimage_path"
+          bash scripts/repack-appimage.sh "$appimage_path"
+
+      - name: Replace draft AppImage with repaired package
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          appimage_path="$(find src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$appimage_path"
+          gh release upload "$RELEASE_TAG" "$appimage_path" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
 
   store-msix:
     name: Build Microsoft Store MSIX (${{ matrix.architecture }})
