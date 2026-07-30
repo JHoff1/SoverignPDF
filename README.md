@@ -177,6 +177,18 @@ Build output is written to:
 src-tauri/target/release/bundle/
 ```
 
+### Check release download counts
+
+Maintainers can view GitHub release-asset totals grouped by operating system:
+
+```sh
+npm run downloads
+```
+
+This command contacts GitHub only when invoked. It is not included in the
+desktop application and does not collect user telemetry. The reported values
+are downloads rather than unique users or confirmed installations.
+
 ## Release automation
 
 The workflow in `.github/workflows/release.yml` builds native packages on

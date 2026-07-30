@@ -15,6 +15,7 @@
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
+    "downloads": "node ./scripts/show-downloads.mjs",
     "store:assets:validate": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/validate-store-assets.ps1",
     "brand:assets": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/generate-brand-assets.ps1",
     "store:demo-pdf": "node ./scripts/create-store-demo-pdf.mjs",

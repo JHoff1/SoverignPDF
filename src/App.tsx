@@ -24,11 +24,7 @@ import {
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readFile, writeFile } from "@tauri-apps/plugin-fs";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import {
-  PhysicalPosition,
-  PhysicalSize,
-  getCurrentWindow
-} from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -660,75 +656,12 @@ export default function App() {
   useEffect(() => {
     if (!isTauri()) return;
     const appWindow = getCurrentWindow();
-    let cancelled = false;
-    let movedUnlisten: (() => void) | undefined;
-    let resizedUnlisten: (() => void) | undefined;
-    let saveTimer = 0;
-    const persistBounds = () => {
-      window.clearTimeout(saveTimer);
-      saveTimer = window.setTimeout(() => {
-        void Promise.all([
-          appWindow.outerPosition(),
-          appWindow.outerSize(),
-          appWindow.isMaximized()
-        ]).then(([position, size, maximized]) => {
-          window.localStorage.setItem(WINDOW_BOUNDS_KEY, JSON.stringify({
-            x: position.x,
-            y: position.y,
-            width: size.width,
-            height: size.height,
-            maximized
-          }));
-        }).catch(() => undefined);
-      }, 350);
-    };
-    void (async () => {
-      try {
-        const stored = JSON.parse(
-          window.localStorage.getItem(WINDOW_BOUNDS_KEY) ?? "null"
-        ) as {
-          x?: number;
-          y?: number;
-          width?: number;
-          height?: number;
-          maximized?: boolean;
-        } | null;
-        if (stored && !stored.maximized) {
-          await appWindow.unmaximize();
-          if (
-            Number.isFinite(stored.width) &&
-            Number.isFinite(stored.height)
-          ) {
-            await appWindow.setSize(new PhysicalSize(
-              Math.max(900, stored.width!),
-              Math.max(600, stored.height!)
-            ));
-          }
-          if (Number.isFinite(stored.x) && Number.isFinite(stored.y)) {
-            await appWindow.setPosition(new PhysicalPosition(stored.x!, stored.y!));
-          }
-        } else if (stored?.maximized) {
-          await appWindow.maximize();
-        }
-      } catch {
-        // Invalid or off-screen historical geometry should never block startup.
-      }
-      const listeners = await Promise.all([
-        appWindow.onMoved(persistBounds),
-        appWindow.onResized(persistBounds)
-      ]);
-      if (cancelled) {
-        listeners.forEach((unlisten) => unlisten());
-      } else {
-        [movedUnlisten, resizedUnlisten] = listeners;
-      }
-    })();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(saveTimer);
-      movedUnlisten?.();
-      resizedUnlisten?.();
-    };
+    // Native windows are configured to start maximized. Older releases then
+    // restored a saved unmaximized size after the webview loaded, overriding
+    // that native setting. Discard the legacy geometry and consistently honor
+    // the maximized startup behavior for every document window.
+    window.localStorage.removeItem(WINDOW_BOUNDS_KEY);
+    void appWindow.maximize().catch(() => undefined);
   }, []);
 
   useEffect(() => {
