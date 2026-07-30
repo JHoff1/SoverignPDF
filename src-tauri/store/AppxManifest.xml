@@ -6,7 +6,7 @@
   IgnorableNamespaces="uap rescap">
 
   <Identity
-    Name="jhoff1.SovereignPDF"
+    Name="jhoff1.VerityPDF"
     Publisher="CN=1561B86F-CE73-4D7B-8F44-C60003C93D75"
     Version="__PACKAGE_VERSION__"
     ProcessorArchitecture="__PROCESSOR_ARCHITECTURE__" />
@@ -31,7 +31,7 @@
 
   <Applications>
     <Application
-      Id="SovereignPDF"
+      Id="VerityPDF"
       Executable="verity-pdf.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements

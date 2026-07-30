@@ -1,7 +1,7 @@
 param(
   [string]$PackagePath = (
     Join-Path $PSScriptRoot `
-      "..\src-tauri\target\store\x64\VerityPDF_0.1.13.0_x64.msix"
+      "..\src-tauri\target\store\x64\VerityPDF_0.1.14.0_x64.msix"
   )
 )
 
