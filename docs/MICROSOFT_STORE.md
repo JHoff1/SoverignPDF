@@ -78,7 +78,7 @@ version than every package previously submitted for the same identity. The
 script converts the Tauri version automatically:
 
 ```text
-0.1.14 -> 0.1.14.0
+0.1.15 -> 0.1.15.0
 ```
 
 Increment the project version before every Store update.
