@@ -66,7 +66,7 @@ import {
 } from "./recoveryStartup";
 import { iconButton } from "./components/ToolbarDropdown";
 import { printPdfPages } from "./printDocument";
-import { OcrStatus, SearchPanel } from "./components/SearchPanels";
+import { SearchPanel } from "./components/SearchPanels";
 import {
   awaitOcrStartup,
   friendlyOcrStatus,
@@ -1283,8 +1283,9 @@ export default function App() {
       .map((page) => page.index);
 
     if (!pageIndexes.length) {
-      setOcrStatus("This PDF already contains searchable text.");
+      setOcrStatus("");
       setOcrProgress(1);
+      setSuccessMessage("This PDF already contains searchable text.");
       return;
     }
 
@@ -1374,16 +1375,24 @@ export default function App() {
         setOcrSearchSpans(recognizedSpans.map((spans) => [...spans]));
         setOcrProgress((position + 1) / pageIndexes.length);
       }
-      setOcrStatus(ocrCancelRequested.current
+      const completionMessage = ocrCancelRequested.current
         ? "OCR canceled."
-        : `OCR complete · ${pageIndexes.length} page${pageIndexes.length === 1 ? "" : "s"} recognized`);
+        : `OCR complete · ${pageIndexes.length} page${pageIndexes.length === 1 ? "" : "s"} recognized`;
+      setOcrStatus("");
+      setSuccessMessage(completionMessage);
     } catch (cause) {
       const startupFailed = !ocrCancelRequested.current && !worker;
-      setOcrStatus(ocrCancelRequested.current
+      const message = ocrCancelRequested.current
         ? "OCR canceled."
         : startupFailed
           ? "OCR unavailable: the offline engine could not start. Reopen the document to retry."
-          : cause instanceof Error ? `OCR failed: ${cause.message}` : "OCR failed.");
+          : cause instanceof Error ? `OCR failed: ${cause.message}` : "OCR failed.";
+      setOcrStatus("");
+      if (ocrCancelRequested.current) {
+        setSuccessMessage(message);
+      } else {
+        setError(message);
+      }
     } finally {
       if (worker) await worker.terminate().catch(() => undefined);
       ocrWorker.current = null;
@@ -2676,14 +2685,6 @@ export default function App() {
           onClose={() => setSearchOpen(false)}
         />
       )}
-      <OcrStatus
-        running={ocrRunning}
-        status={ocrStatus}
-        progress={ocrProgress}
-        onCancel={cancelOcr}
-        onDismiss={() => setOcrStatus("")}
-      />
-
       <main className="flex min-h-0 flex-1">
         {sidebarOpen && (
           <aside
@@ -2908,6 +2909,7 @@ export default function App() {
         zoom={zoom}
         dirty={editor.isDirty}
         activity={backgroundActivity}
+        onCancelActivity={ocrRunning ? cancelOcr : undefined}
         onPreviousPage={() => jumpToPage(currentPage - 1)}
         onNextPage={() => jumpToPage(currentPage + 1)}
         updateStatus={updateStatus}

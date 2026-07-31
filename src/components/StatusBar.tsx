@@ -9,7 +9,8 @@ import {
   LoaderCircle,
   Maximize2,
   RefreshCw,
-  ScanText
+  ScanText,
+  X
 } from "lucide-react";
 import { version } from "../../package.json";
 import type { UpdateCheckStatus } from "../lib/updateCheck";
@@ -35,6 +36,7 @@ export function StatusBar({
   zoom,
   dirty,
   activity,
+  onCancelActivity,
   onPreviousPage,
   onNextPage,
   updateStatus,
@@ -51,6 +53,7 @@ export function StatusBar({
   zoom: number;
   dirty: boolean;
   activity: string;
+  onCancelActivity?: () => void;
   onPreviousPage: () => void;
   onNextPage: () => void;
   updateStatus: UpdateCheckStatus;
@@ -152,6 +155,18 @@ export function StatusBar({
               <LoaderCircle size={12} className="shrink-0 animate-spin text-orange-400" />
             )}
             <span className="max-w-52 truncate text-zinc-300">{activity}</span>
+            {onCancelActivity && (
+              <button
+                type="button"
+                aria-label="Cancel background OCR"
+                className="toolbar-tooltip flex h-6 w-6 shrink-0 items-center justify-center rounded text-zinc-400 transition hover:bg-white/10 hover:text-zinc-100"
+                data-tooltip="Cancel background OCR"
+                data-tooltip-align="end"
+                onClick={onCancelActivity}
+              >
+                <X size={13} />
+              </button>
+            )}
           </>
         ) : dirty ? (
           <>

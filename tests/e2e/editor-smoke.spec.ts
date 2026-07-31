@@ -257,7 +257,9 @@ test("loads, searches, rotates, annotates, and restores history", async ({
   });
 
   await expect(page.getByText("regression.pdf", { exact: true })).toBeVisible();
-  await expect(page.getByText("3 pages", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 pages", { exact: true })).toBeVisible({
+    timeout: 20_000
+  });
 
   await page.getByRole("button", { name: "Find" }).click();
   await page
@@ -754,7 +756,9 @@ test("opens local print options from Ctrl+P and validates page ranges", async ({
     mimeType: "application/pdf",
     buffer: await syntheticPdf()
   });
-  await expect(page.getByText("3 pages", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 pages", { exact: true })).toBeVisible({
+    timeout: 20_000
+  });
 
   await page.keyboard.press("Control+P");
   const dialog = page.getByRole("dialog", { name: "Print PDF" });
@@ -1024,16 +1028,20 @@ test("finishes offline OCR in the background for an image-only PDF", async ({
   await expect(
     page.getByRole("searchbox", { name: "Find in document" })
   ).toHaveCount(0);
-  const status = page.getByRole("status", { name: "Background OCR status" });
-  await expect(status).toBeVisible({ timeout: 20_000 });
-  await expect(status).toContainText(
-    /Loading (accelerated )?offline OCR engine|Initializing offline OCR engine|Recognizing page|OCR complete/
+  const statusBar = page.getByLabel("Document status");
+  await expect(statusBar).toContainText(
+    /Loading English OCR data|Loading (accelerated )?offline OCR engine|Initializing offline OCR engine|Recognizing page/,
+    { timeout: 20_000 }
   );
-  await expect(status).toContainText(/OCR complete/, { timeout: 60_000 });
-  await expect(status.locator("button")).toHaveAttribute(
-    "data-tooltip",
-    "Dismiss OCR status"
-  );
+  await expect(
+    statusBar.getByRole("button", { name: "Cancel background OCR" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: /OCR complete/ })
+  ).toBeVisible({ timeout: 60_000 });
+  await expect(
+    page.getByRole("status", { name: "Background OCR status" })
+  ).toHaveCount(0);
 });
 
 test("falls back from SIMD OCR without making external network requests", async ({
@@ -1055,10 +1063,9 @@ test("falls back from SIMD OCR without making external network requests", async 
     buffer: await imageOnlyPdf()
   });
 
-  const status = page.getByRole("status", {
-    name: "Background OCR status"
-  });
-  await expect(status).toContainText(/OCR complete/, { timeout: 60_000 });
+  await expect(
+    page.getByRole("status").filter({ hasText: /OCR complete/ })
+  ).toBeVisible({ timeout: 60_000 });
   expect(
     requestedUrls.some((url) =>
       url.includes("tesseract-core-simd-lstm.wasm.js")

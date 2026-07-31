@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import { ChevronDown, ChevronUp, ScanText, Search, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 
 export function SearchPanel({
   inputRef,
@@ -58,32 +58,6 @@ export function SearchPanel({
       <button className="toolbar-tooltip flex h-8 w-8 items-center justify-center rounded text-zinc-400 hover:bg-white/10 hover:text-white" onClick={onClose} data-tooltip="Close document search">
         <X size={16} />
       </button>
-    </div>
-  );
-}
-
-export function OcrStatus({
-  running,
-  status,
-  progress,
-  onCancel,
-  onDismiss
-}: {
-  running: boolean;
-  status: string;
-  progress: number;
-  onCancel: () => void;
-  onDismiss: () => void;
-}) {
-  if (!running && !status) return null;
-  return (
-    <div role="status" aria-label="Background OCR status" className="relative flex h-8 shrink-0 items-center gap-2 overflow-hidden border-b border-emerald-500/10 bg-emerald-950/20 px-3">
-      <ScanText size={14} className="shrink-0 text-emerald-400" />
-      <span className="truncate text-[11px] text-emerald-200/80">{status}</span>
-      <button className="toolbar-tooltip ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded text-emerald-300/60 hover:bg-white/10 hover:text-emerald-200" onClick={running ? onCancel : onDismiss} data-tooltip={running ? "Cancel background OCR" : "Dismiss OCR status"}>
-        <X size={14} />
-      </button>
-      <div className="absolute bottom-0 left-0 h-0.5 bg-emerald-400 transition-[width] duration-200" style={{ width: `${Math.round(progress * 100)}%` }} />
     </div>
   );
 }
