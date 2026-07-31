@@ -83,6 +83,31 @@ script converts the Tauri version automatically:
 
 Increment the project version before every Store update.
 
+## Automated Store submission
+
+Tagged releases build the x64 and ARM64 MSIX packages, combine them into one
+`VerityPDF.msixupload`, and submit the update through Microsoft's Store
+Developer CLI. The submission job runs only after the regular GitHub release
+and both Store packages have built successfully.
+
+The GitHub environment must be named `microsoft-store` and contain these
+environment secrets:
+
+- `AZURE_AD_TENANT_ID`
+- `AZURE_AD_APPLICATION_CLIENT_ID`
+- `AZURE_AD_APPLICATION_SECRET`
+- `SELLER_ID`
+
+It must also contain this environment variable:
+
+- `MS_STORE_PRODUCT_ID` (`9NTJ3VJLH22M`)
+
+The Entra application represented by those credentials must have the
+`Manager (Windows)` role in Partner Center. Protection rules such as a required
+reviewer can be configured on the GitHub environment if each Store submission
+should require manual approval. Certification and publication remain managed
+by Partner Center after the workflow submits the package.
+
 ## Store listing assets
 
 Customer-facing artwork is stored in `src-tauri/store/listing-assets/`.
@@ -123,5 +148,5 @@ Before submission:
 4. Verify Open, Save, Save As, Print, OCR, and offline operation.
 5. Confirm that uninstalling removes the app while leaving user-created PDFs
    and backups untouched.
-6. Upload both architecture packages to the same Partner Center submission so
-   the Store can select the correct package for each device.
+6. Confirm that the release workflow's **Submit Microsoft Store update** job
+   successfully places the new submission into Partner Center certification.

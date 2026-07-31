@@ -376,3 +376,86 @@ jobs:
               make_latest: "true",
             });
             core.info(`Published ${tag} with ${release.assets.length} assets.`);
+
+  publish-microsoft-store:
+    name: Submit Microsoft Store update
+    needs:
+      - store-msix
+      - publish-release
+    runs-on: windows-latest
+    environment:
+      name: microsoft-store
+    concurrency:
+      group: microsoft-store-submission
+      cancel-in-progress: false
+    steps:
+      - name: Download Store packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: veritypdf-store-*
+          path: store-packages
+          merge-multiple: true
+
+      - name: Create multi-architecture Store upload
+        id: store-upload
+        shell: pwsh
+        run: |
+          $packages = @(
+            Get-ChildItem -LiteralPath "store-packages" -Filter "*.msix" `
+              -File -Recurse
+          )
+          if ($packages.Count -ne 2) {
+            throw "Expected exactly two Store MSIX packages; found $($packages.Count)."
+          }
+
+          foreach ($architecture in @("x64", "arm64")) {
+            if (-not ($packages.Name -match "_${architecture}\.msix$")) {
+              throw "The $architecture Store MSIX package is missing."
+            }
+          }
+
+          $uploadContent = Join-Path $env:RUNNER_TEMP "store-upload-content"
+          $uploadZip = Join-Path $env:RUNNER_TEMP "VerityPDF.zip"
+          $uploadPath = Join-Path $env:RUNNER_TEMP "VerityPDF.msixupload"
+          $null = New-Item -ItemType Directory -Path $uploadContent -Force
+          foreach ($package in $packages) {
+            Copy-Item -LiteralPath $package.FullName -Destination $uploadContent
+          }
+
+          Compress-Archive -Path (Join-Path $uploadContent "*") `
+            -DestinationPath $uploadZip -CompressionLevel Optimal
+          Move-Item -LiteralPath $uploadZip -Destination $uploadPath
+          "path=$uploadPath" | Out-File -FilePath $env:GITHUB_OUTPUT `
+            -Encoding utf8 -Append
+
+      - name: Retain combined Store upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: veritypdf-store-upload
+          path: ${{ steps.store-upload.outputs.path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Install Microsoft Store Developer CLI
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+
+      - name: Configure Microsoft Store credentials
+        shell: pwsh
+        run: |
+          msstore reconfigure `
+            --tenantId "${{ secrets.AZURE_AD_TENANT_ID }}" `
+            --sellerId "${{ secrets.SELLER_ID }}" `
+            --clientId "${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}" `
+            --clientSecret "${{ secrets.AZURE_AD_APPLICATION_SECRET }}"
+
+      - name: Publish Store submission
+        shell: pwsh
+        env:
+          MS_STORE_PRODUCT_ID: ${{ vars.MS_STORE_PRODUCT_ID }}
+          STORE_UPLOAD_PATH: ${{ steps.store-upload.outputs.path }}
+        run: |
+          if (-not $env:MS_STORE_PRODUCT_ID) {
+            throw "The MS_STORE_PRODUCT_ID environment variable is not configured."
+          }
+          msstore publish "$env:STORE_UPLOAD_PATH" `
+            -id "$env:MS_STORE_PRODUCT_ID"
