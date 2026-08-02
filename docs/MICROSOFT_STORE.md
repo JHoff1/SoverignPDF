@@ -78,7 +78,7 @@ version than every package previously submitted for the same identity. The
 script converts the Tauri version automatically:
 
 ```text
-0.1.18 -> 0.1.18.0
+0.1.19 -> 0.1.19.0
 ```
 
 Increment the project version before every Store update.
@@ -86,9 +86,10 @@ Increment the project version before every Store update.
 ## Automated Store submission
 
 Tagged releases build the x64 and ARM64 MSIX packages, combine them into one
-`VerityPDF.msixupload`, and submit the update through Microsoft's Store
-Developer CLI. The submission job runs only after the regular GitHub release
-and both Store packages have built successfully.
+validated multi-architecture `.msixbundle` inside `VerityPDF.msixupload`, and
+submit the update through Microsoft's Store Developer CLI. The submission job
+runs only after the regular GitHub release and both Store packages have built
+successfully.
 
 The GitHub environment must be named `microsoft-store` and contain these
 environment secrets:

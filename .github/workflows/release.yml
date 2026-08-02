@@ -389,6 +389,9 @@ jobs:
       group: microsoft-store-submission
       cancel-in-progress: false
     steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
       - name: Download Store packages
         uses: actions/download-artifact@v4
         with:
@@ -400,31 +403,10 @@ jobs:
         id: store-upload
         shell: pwsh
         run: |
-          $packages = @(
-            Get-ChildItem -LiteralPath "store-packages" -Filter "*.msix" `
-              -File -Recurse
-          )
-          if ($packages.Count -ne 2) {
-            throw "Expected exactly two Store MSIX packages; found $($packages.Count)."
-          }
-
-          foreach ($architecture in @("x64", "arm64")) {
-            if (-not ($packages.Name -match "_${architecture}\.msix$")) {
-              throw "The $architecture Store MSIX package is missing."
-            }
-          }
-
-          $uploadContent = Join-Path $env:RUNNER_TEMP "store-upload-content"
-          $uploadZip = Join-Path $env:RUNNER_TEMP "VerityPDF.zip"
           $uploadPath = Join-Path $env:RUNNER_TEMP "VerityPDF.msixupload"
-          $null = New-Item -ItemType Directory -Path $uploadContent -Force
-          foreach ($package in $packages) {
-            Copy-Item -LiteralPath $package.FullName -Destination $uploadContent
-          }
-
-          Compress-Archive -Path (Join-Path $uploadContent "*") `
-            -DestinationPath $uploadZip -CompressionLevel Optimal
-          Move-Item -LiteralPath $uploadZip -Destination $uploadPath
+          ./scripts/build-store-upload.ps1 `
+            -PackagesPath "store-packages" `
+            -OutputPath $uploadPath
           "path=$uploadPath" | Out-File -FilePath $env:GITHUB_OUTPUT `
             -Encoding utf8 -Append
 

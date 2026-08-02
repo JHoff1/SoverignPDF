@@ -60,3 +60,33 @@ jobs:
             src-tauri/target/store/${{ matrix.architecture }}/*.sha256
           if-no-files-found: error
           retention-days: 30
+
+  build-store-upload:
+    name: Validate multi-architecture Store upload
+    needs: build-store-msix
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Download Store packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: veritypdf-store-*
+          path: store-packages
+          merge-multiple: true
+
+      - name: Create and validate Store upload
+        shell: pwsh
+        run: |
+          ./scripts/build-store-upload.ps1 `
+            -PackagesPath "store-packages" `
+            -OutputPath (Join-Path $env:RUNNER_TEMP "VerityPDF.msixupload")
+
+      - name: Retain validated Store upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: veritypdf-store-upload
+          path: ${{ runner.temp }}/VerityPDF.msixupload
+          if-no-files-found: error
+          retention-days: 30

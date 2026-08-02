@@ -1,11 +1,18 @@
-param(
-  [string]$PackagePath = (
-    Join-Path $PSScriptRoot `
-      "..\src-tauri\target\store\x64\VerityPDF_0.1.16.0_x64.msix"
-  )
-)
+param([string]$PackagePath)
 
 $ErrorActionPreference = "Stop"
+
+if (-not $PackagePath) {
+  $configurationPath = Join-Path $PSScriptRoot `
+    "..\src-tauri\tauri.conf.json"
+  $configuration = Get-Content -LiteralPath $configurationPath -Raw |
+    ConvertFrom-Json
+  $packageVersion = "{0}.0" -f $configuration.version
+  $PackagePath = Join-Path $PSScriptRoot (
+    "..\src-tauri\target\store\x64\VerityPDF_{0}_x64.msix" -f
+    $packageVersion
+  )
+}
 
 $principal = New-Object Security.Principal.WindowsPrincipal(
   [Security.Principal.WindowsIdentity]::GetCurrent()
