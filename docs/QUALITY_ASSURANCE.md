@@ -8,8 +8,10 @@ telemetry or network access to the desktop application.
 
 - Windows x64: Rust checks plus clean MSI and NSIS install, PDF association,
   document launch, previous-release upgrade, and uninstall tests.
-- Windows ARM64: build and install the Store MSIX on a native
-  `windows-11-arm` runner, confirm the executable is ARM64, then open a test PDF.
+- Windows ARM64: build and sign the Store MSIX on a native `windows-11-arm`
+  runner, validate and unpack it with the Windows SDK, confirm the payload is
+  ARM64, then launch it with a test PDF. Partner Center performs Store install
+  certification because hosted-runner AppX deployment can block indefinitely.
 - macOS Intel and Apple Silicon: verify and launch the universal DMG on native
   runners.
 - Linux Ubuntu 22.04 and 24.04: install the DEB, validate desktop/MIME metadata

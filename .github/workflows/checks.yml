@@ -335,7 +335,7 @@ jobs:
           retention-days: 14
 
   windows-arm64-msix:
-    name: Native Windows ARM64 Store runtime
+    name: Native Windows ARM64 Store package runtime
     runs-on: windows-11-arm
     timeout-minutes: 25
 
@@ -377,8 +377,8 @@ jobs:
       - name: Create smoke-test PDF
         run: node scripts/create-store-demo-pdf.mjs "$env:RUNNER_TEMP\VerityPDF ARM64 Smoke Test.pdf"
 
-      - name: Install and launch ARM64 MSIX
-        timeout-minutes: 8
+      - name: Validate and launch ARM64 MSIX payload
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $package = Get-ChildItem "src-tauri/target/store/arm64/*.msix" |

@@ -64,7 +64,12 @@ try {
 }
 finally {
     if ($process -and -not $process.HasExited) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        # Terminate the complete WebView process tree before an installer tries
+        # to replace or remove the application binary.
+        & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null
+        if (-not $process.HasExited) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
         $process.WaitForExit(5000) | Out-Null
     }
     # WebView applications may briefly leave a secondary process alive after

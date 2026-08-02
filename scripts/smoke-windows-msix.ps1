@@ -15,9 +15,7 @@ $pdfPath = (Resolve-Path -LiteralPath $Pdf).Path
 $artifactPath = [System.IO.Path]::GetFullPath($ArtifactDirectory)
 New-Item -ItemType Directory -Path $artifactPath -Force | Out-Null
 $certificate = $null
-$installedPackage = $null
 $certificatePath = Join-Path $artifactPath "arm64-smoke.cer"
-$installProcess = $null
 $unpackedPath = $null
 
 function Find-WindowsSdkTool {
@@ -55,48 +53,23 @@ try {
     & $signTool verify /pa $packagePath
     if ($LASTEXITCODE -ne 0) { throw "The signed MSIX did not verify." }
 
-    $escapedPackagePath = $packagePath.Replace("'", "''")
-    $installCommand = "Add-AppxPackage -LiteralPath '$escapedPackagePath' -ForceApplicationShutdown -ErrorAction Stop"
-    $encodedInstallCommand = [Convert]::ToBase64String(
-        [Text.Encoding]::Unicode.GetBytes($installCommand)
-    )
-    $installProcess = Start-Process -FilePath "powershell.exe" `
-        -ArgumentList @(
-            "-NoProfile",
-            "-NonInteractive",
-            "-EncodedCommand",
-            $encodedInstallCommand
-        ) `
-        -WindowStyle Hidden `
-        -PassThru
-    if ($installProcess.WaitForExit(90000)) {
-        if ($installProcess.ExitCode -ne 0) {
-            throw "Add-AppxPackage failed with exit code $($installProcess.ExitCode)."
-        }
-        $installedPackage = Get-AppxPackage -Name "jhoff1.VerityPDF" |
-            Sort-Object Version -Descending |
-            Select-Object -First 1
-        if (-not $installedPackage) { throw "The Store package was not installed." }
-        if ([string]$installedPackage.Architecture -ne "Arm64") {
-            throw "Expected an ARM64 package, found $($installedPackage.Architecture)."
-        }
-        $executable = Join-Path $installedPackage.InstallLocation "verity-pdf.exe"
-    } else {
-        Stop-Process -Id $installProcess.Id -Force -ErrorAction SilentlyContinue
-        $installProcess.WaitForExit(5000) | Out-Null
-        Write-Warning "AppX deployment did not finish on the hosted runner; validating the unpacked ARM64 package runtime instead."
-        $makeAppx = Find-WindowsSdkTool -Name "makeappx.exe"
-        $unpackedPath = Join-Path $env:RUNNER_TEMP "veritypdf-arm64-unpacked"
-        if (Test-Path -LiteralPath $unpackedPath) {
-            Remove-Item -LiteralPath $unpackedPath -Recurse -Force
-        }
-        & $makeAppx unpack /p $packagePath /d $unpackedPath /o
-        if ($LASTEXITCODE -ne 0) { throw "MakeAppx could not unpack the ARM64 MSIX." }
-        $executable = Join-Path $unpackedPath "verity-pdf.exe"
+    # Add-AppxPackage is not reliable on GitHub's hosted ARM image and can
+    # block inside the deployment service indefinitely. Partner Center performs
+    # the actual Store installation validation. Here we verify the signed MSIX,
+    # unpack it with the Windows SDK, and launch its ARM64 payload natively.
+    $makeAppx = Find-WindowsSdkTool -Name "makeappx.exe"
+    & $makeAppx validate /p $packagePath
+    if ($LASTEXITCODE -ne 0) { throw "MakeAppx rejected the ARM64 MSIX." }
+    $unpackedPath = Join-Path $env:RUNNER_TEMP "veritypdf-arm64-unpacked"
+    if (Test-Path -LiteralPath $unpackedPath) {
+        Remove-Item -LiteralPath $unpackedPath -Recurse -Force
     }
+    & $makeAppx unpack /p $packagePath /d $unpackedPath /o
+    if ($LASTEXITCODE -ne 0) { throw "MakeAppx could not unpack the ARM64 MSIX." }
+    $executable = Join-Path $unpackedPath "verity-pdf.exe"
 
     if (-not (Test-Path -LiteralPath $executable)) {
-        throw "The installed ARM64 executable is missing."
+        throw "The packaged ARM64 executable is missing."
     }
     $bytes = [System.IO.File]::ReadAllBytes($executable)
     $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
@@ -112,34 +85,6 @@ try {
         -Label "windows-arm64-msix"
 }
 finally {
-    if ($installProcess -and -not $installProcess.HasExited) {
-        Stop-Process -Id $installProcess.Id -Force -ErrorAction SilentlyContinue
-    }
-    if (-not $installedPackage) {
-        $installedPackage = Get-AppxPackage -Name "jhoff1.VerityPDF" `
-            -ErrorAction SilentlyContinue |
-            Sort-Object Version -Descending |
-            Select-Object -First 1
-    }
-    if ($installedPackage) {
-        $escapedPackageName = $installedPackage.PackageFullName.Replace("'", "''")
-        $removeCommand = "Remove-AppxPackage -Package '$escapedPackageName' -ErrorAction SilentlyContinue"
-        $encodedRemoveCommand = [Convert]::ToBase64String(
-            [Text.Encoding]::Unicode.GetBytes($removeCommand)
-        )
-        $removeProcess = Start-Process -FilePath "powershell.exe" `
-            -ArgumentList @(
-                "-NoProfile",
-                "-NonInteractive",
-                "-EncodedCommand",
-                $encodedRemoveCommand
-            ) `
-            -WindowStyle Hidden `
-            -PassThru
-        if (-not $removeProcess.WaitForExit(30000)) {
-            Stop-Process -Id $removeProcess.Id -Force -ErrorAction SilentlyContinue
-        }
-    }
     if ($certificate) {
         Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificate.Thumbprint)" `
             -Force -ErrorAction SilentlyContinue
