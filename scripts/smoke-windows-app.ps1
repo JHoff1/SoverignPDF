@@ -57,6 +57,12 @@ finally {
         Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         $process.WaitForExit(5000) | Out-Null
     }
+    # WebView applications may briefly leave a secondary process alive after
+    # the main window exits. Ensure installer upgrade/uninstall tests never
+    # race a locked application binary on disposable CI runners.
+    $processName = [System.IO.Path]::GetFileNameWithoutExtension($executablePath)
+    Get-Process -Name $processName -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
     $env:VERITYPDF_SMOKE_READY_FILE = $previousMarker
     if ($process -and $process.HasExited -and $process.ExitCode -ne 0) {
         if (Test-Path -LiteralPath $stderrPath) {

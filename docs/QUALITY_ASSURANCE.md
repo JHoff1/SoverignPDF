@@ -63,6 +63,18 @@ mixed page rotations, malformed-file recovery, and 500-page virtualization.
 
 ## Local regression commands
 
+Run the complete local gate with:
+
+```powershell
+npm run release:verify
+```
+
+This requires `cargo-audit` and `cargo-deny` to be installed. Dependabot checks
+npm, Cargo, and GitHub Actions monthly and groups compatible minor/patch updates
+to limit PR and notification noise.
+
+The equivalent individual commands are:
+
 ```powershell
 npm run build
 npm run test:unit

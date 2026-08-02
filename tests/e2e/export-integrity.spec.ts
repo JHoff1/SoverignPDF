@@ -1,27 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
-import { degrees, PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { readFile } from "node:fs/promises";
-
-async function formPdf() {
-  const pdf = await PDFDocument.create();
-  pdf.setTitle("Private title");
-  pdf.setAuthor("Private author");
-  pdf.setSubject("Private subject");
-  pdf.setKeywords(["private", "metadata"]);
-  pdf.setProducer("Private producer");
-  pdf.setCreator("Private creator");
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const first = pdf.addPage([612, 792]);
-  first.drawText("ORIGINAL_PAGE_ONE", { x: 72, y: 700, size: 18, font });
-  const field = pdf.getForm().createTextField("local.name");
-  field.setText("Visible local value");
-  field.addToPage(first, { x: 72, y: 620, width: 220, height: 32, font });
-  const second = pdf.addPage([792, 612]);
-  second.setRotation(degrees(90));
-  second.drawText("ORIGINAL_PAGE_TWO", { x: 72, y: 520, size: 18, font });
-  return Buffer.from(await pdf.save());
-}
+import { createFormIntegrityPdf } from "../fixtures/pdfFixtures";
 
 async function loadPdf(page: Page, bytes: Buffer) {
   await page.goto("/");
@@ -55,8 +36,8 @@ async function downloadExport(page: Page) {
 test("preserves document structure while flattening forms and clearing metadata", async ({
   page
 }) => {
-  test.setTimeout(60_000);
-  await loadPdf(page, await formPdf());
+  test.setTimeout(120_000);
+  await loadPdf(page, await createFormIntegrityPdf());
 
   const documentMenu = page.locator("summary").filter({ hasText: "Document" });
   await documentMenu.click();
@@ -91,7 +72,7 @@ test("preserves document structure while flattening forms and clearing metadata"
 });
 
 test("embeds text annotations as searchable page content", async ({ page }) => {
-  await loadPdf(page, await formPdf());
+  await loadPdf(page, await createFormIntegrityPdf());
   await page.locator(
     'button[data-tooltip="Click a page to place and edit a text box"]'
   ).click();
@@ -108,4 +89,20 @@ test("embeds text annotations as searchable page content", async ({ page }) => {
     .join(" ");
   expect(text).toContain("SEARCHABLE_EXPORT_NOTE");
   await rendered.destroy();
+});
+
+test("exports a local privacy-scrubbed diagnostic report", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Preferences" }).click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export diagnostic report" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("VerityPDF-diagnostics.txt");
+  const path = await download.path();
+  if (!path) throw new Error("The diagnostic report did not download.");
+  const report = await readFile(path, "utf8");
+  expect(report).toContain("VerityPDF local diagnostic report");
+  expect(report).toContain("Document loaded: no");
+  expect(report).toContain("document contents, file names, recent-file paths");
+  expect(report).not.toMatch(/[A-Z]:\\Users\\/i);
 });

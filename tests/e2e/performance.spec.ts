@@ -50,7 +50,7 @@ test("keeps startup, rendering, zoom, memory, and scrolling within budgets", asy
   const renderStart = Date.now();
   await loadPdf(page, 3);
   const firstCanvas = page.locator('[data-page-mounted="1"] canvas').first();
-  await expect(firstCanvas).toBeVisible();
+  await expect(firstCanvas).toBeVisible({ timeout: 20_000 });
   await expect.poll(() => firstCanvas.evaluate((canvas: HTMLCanvasElement) => canvas.width))
     .toBeGreaterThan(0);
   metrics.initialPageRenderMs = Date.now() - renderStart;

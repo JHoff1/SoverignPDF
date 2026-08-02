@@ -18,8 +18,10 @@ $artifactPath = [System.IO.Path]::GetFullPath($ArtifactDirectory)
 New-Item -ItemType Directory -Path $artifactPath -Force | Out-Null
 
 function Invoke-Msi {
-    param([string[]]$Arguments)
-    $process = Start-Process msiexec.exe -ArgumentList $Arguments -Wait -PassThru
+    param([string[]]$Arguments, [string]$Label = "msi")
+    $logPath = Join-Path $artifactPath "$Label-msiexec.log"
+    $loggedArguments = @($Arguments) + @("/l*v", $logPath)
+    $process = Start-Process msiexec.exe -ArgumentList $loggedArguments -Wait -PassThru
     if ($process.ExitCode -notin @(0, 1641, 3010)) {
         throw "msiexec failed with exit code $($process.ExitCode)."
     }
@@ -94,12 +96,12 @@ function Remove-NsisInstall {
 
 try {
     if ($PreviousMsi -and (Test-Path -LiteralPath $PreviousMsi)) {
-        Invoke-Msi @("/i", (Resolve-Path $PreviousMsi).Path, "/qn", "/norestart")
+        Invoke-Msi -Label "previous-install" -Arguments @("/i", (Resolve-Path $PreviousMsi).Path, "/qn", "/norestart")
         Test-InstalledApp "msi-previous"
     }
-    Invoke-Msi @("/i", $msiPath, "/qn", "/norestart")
+    Invoke-Msi -Label "current-install" -Arguments @("/i", $msiPath, "/qn", "/norestart")
     Test-InstalledApp "msi-current"
-    Invoke-Msi @("/x", $msiPath, "/qn", "/norestart")
+    Invoke-Msi -Label "current-uninstall" -Arguments @("/x", $msiPath, "/qn", "/norestart")
     if (Find-InstalledExecutable) { throw "The MSI uninstall left the app installed." }
 
     if ($PreviousNsis -and (Test-Path -LiteralPath $PreviousNsis)) {
@@ -115,6 +117,6 @@ try {
     if (Find-InstalledExecutable) { throw "The NSIS uninstall left the app installed." }
 }
 finally {
-    try { Invoke-Msi @("/x", $msiPath, "/qn", "/norestart") } catch {}
+    try { Invoke-Msi -Label "cleanup-uninstall" -Arguments @("/x", $msiPath, "/qn", "/norestart") } catch {}
     try { Remove-NsisInstall } catch {}
 }

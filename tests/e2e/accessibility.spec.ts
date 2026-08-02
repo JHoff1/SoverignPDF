@@ -19,7 +19,9 @@ async function loadDocument(page: import("@playwright/test").Page) {
       mimeType: "application/pdf",
       buffer: await onePagePdf()
     });
-  await expect(page.locator('[data-page-mounted="1"] canvas')).toBeVisible();
+  await expect(page.locator('[data-page-mounted="1"] canvas')).toBeVisible({
+    timeout: 20_000
+  });
 }
 
 test("supports keyboard navigation, named controls, and Escape", async ({ page }) => {

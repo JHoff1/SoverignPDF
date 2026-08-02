@@ -337,6 +337,7 @@ jobs:
   windows-arm64-msix:
     name: Native Windows ARM64 Store runtime
     runs-on: windows-11-arm
+    timeout-minutes: 25
 
     steps:
       - name: Check out source
@@ -377,6 +378,7 @@ jobs:
         run: node scripts/create-store-demo-pdf.mjs "$env:RUNNER_TEMP\VerityPDF ARM64 Smoke Test.pdf"
 
       - name: Install and launch ARM64 MSIX
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $package = Get-ChildItem "src-tauri/target/store/arm64/*.msix" |
@@ -399,6 +401,7 @@ jobs:
   windows-installers:
     name: Clean Windows installer and upgrade regression
     runs-on: windows-latest
+    timeout-minutes: 25
 
     steps:
       - name: Check out source
@@ -451,6 +454,7 @@ jobs:
         run: node scripts/create-store-demo-pdf.mjs "$env:RUNNER_TEMP\VerityPDF Installer Smoke Test.pdf"
 
       - name: Install, upgrade, open PDF, and uninstall
+        timeout-minutes: 10
         shell: pwsh
         run: |
           $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" |

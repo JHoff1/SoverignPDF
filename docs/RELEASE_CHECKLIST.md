@@ -64,6 +64,23 @@ annotations.
 - [ ] MSI and NSIS upgrades from the previous release retain a working app.
 - [ ] MSI and NSIS uninstall without leaving the application executable behind.
 
+## Native accessibility review
+
+Complete this review whenever navigation, dialogs, colors, or toolbar structure
+changes. Browser automation cannot fully reproduce native webview and operating
+system assistive-technology behavior.
+
+- [ ] Windows: navigate the complete shell and native file dialogs with the
+  keyboard and NVDA; confirm names, roles, state changes, and errors are spoken.
+- [ ] macOS: repeat the primary open, edit, save, print, Preferences, and error
+  flows with VoiceOver and Full Keyboard Access.
+- [ ] Linux: repeat the primary flows with Orca under a supported desktop.
+- [ ] At 200% interface scaling, no primary control is clipped or unreachable.
+- [ ] Windows High Contrast and macOS Increase Contrast preserve visible focus,
+  selected, disabled, and destructive states.
+- [ ] Reduced-motion mode removes nonessential animation without hiding state.
+- [ ] Focus returns to the invoking control after every in-app dialog closes.
+
 ## Published release
 
 - [ ] Windows `.exe` and `.msi` are attached.

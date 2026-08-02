@@ -480,6 +480,57 @@ mod tests {
     }
 
     #[test]
+    fn failed_atomic_replacement_preserves_the_original() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let folder = std::env::temp_dir().join(format!("veritypdf-failed-save-{nonce}"));
+        fs::create_dir_all(&folder).unwrap();
+        let target = folder.join("document.pdf");
+        fs::write(&target, b"original").unwrap();
+        let missing_temporary = atomic_temp_path(&target).unwrap();
+
+        assert!(replace_pdf_file(&missing_temporary, &target).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"original");
+        assert!(!missing_temporary.exists());
+        fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn atomic_replacement_rejects_forged_or_cross_directory_paths() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let folder = std::env::temp_dir().join(format!("veritypdf-save-scope-{nonce}"));
+        let other_folder = folder.join("other");
+        fs::create_dir_all(&other_folder).unwrap();
+        let target = folder.join("document.pdf");
+        fs::write(&target, b"original").unwrap();
+
+        let forged = folder.join("unexpected.tmp");
+        fs::write(&forged, b"replacement").unwrap();
+        assert!(replace_pdf_file(&forged, &target).is_err());
+
+        let cross_directory = other_folder.join(".document.pdf.1.2.tmp");
+        fs::write(&cross_directory, b"replacement").unwrap();
+        assert!(replace_pdf_file(&cross_directory, &target).is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"original");
+        fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn atomic_temp_paths_only_accept_pdf_destinations() {
+        assert!(atomic_temp_path(Path::new("document.txt")).is_err());
+        assert!(atomic_temp_path(Path::new("document")).is_err());
+        let path = atomic_temp_path(Path::new("document.PDF")).unwrap();
+        let name = path.file_name().unwrap().to_string_lossy();
+        assert!(name.starts_with(".document.PDF."));
+        assert!(name.ends_with(".tmp"));
+    }
+
+    #[test]
     fn recovery_window_does_not_replace_an_explicitly_opened_pdf() {
         let mut opened = OpenedPdfState::default();
         opened
