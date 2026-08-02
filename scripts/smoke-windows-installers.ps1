@@ -33,8 +33,17 @@ function Get-VerityInstall {
             -ErrorAction SilentlyContinue
         Get-ItemProperty "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" `
             -ErrorAction SilentlyContinue
-    ) | Where-Object { $_.DisplayName -like "VerityPDF*" } |
-        Sort-Object { [version]($_.DisplayVersion -replace '[^0-9.]', '') } -Descending
+    ) | Where-Object {
+        $_.PSObject.Properties["DisplayName"] -and
+        $_.DisplayName -like "VerityPDF*"
+    } | Sort-Object {
+        $displayVersion = if ($_.PSObject.Properties["DisplayVersion"]) {
+            $_.DisplayVersion
+        } else {
+            "0.0.0"
+        }
+        [version]($displayVersion -replace '[^0-9.]', '')
+    } -Descending
     return $entries | Select-Object -First 1
 }
 

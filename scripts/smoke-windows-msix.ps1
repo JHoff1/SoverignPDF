@@ -44,6 +44,8 @@ try {
     Export-Certificate -Cert $certificate -FilePath $certificatePath | Out-Null
     Import-Certificate -FilePath $certificatePath `
         -CertStoreLocation "Cert:\CurrentUser\TrustedPeople" | Out-Null
+    Import-Certificate -FilePath $certificatePath `
+        -CertStoreLocation "Cert:\CurrentUser\Root" | Out-Null
 
     $signTool = Find-WindowsSdkTool -Name "signtool.exe"
     & $signTool sign /fd SHA256 /sha1 $certificate.Thumbprint /s My $packagePath
@@ -86,6 +88,8 @@ finally {
         Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificate.Thumbprint)" `
             -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath "Cert:\CurrentUser\TrustedPeople\$($certificate.Thumbprint)" `
+            -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$($certificate.Thumbprint)" `
             -Force -ErrorAction SilentlyContinue
     }
 }

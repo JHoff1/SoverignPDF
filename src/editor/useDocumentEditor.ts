@@ -464,8 +464,8 @@ export function useDocumentEditor() {
       pdf.setAuthor("");
       pdf.setSubject("");
       pdf.setKeywords([]);
-      pdf.setProducer("VerityPDF");
-      pdf.setCreator("VerityPDF");
+      pdf.setProducer("");
+      pdf.setCreator("");
     }), [transformPdf]);
 
   const optimize = useCallback(() =>

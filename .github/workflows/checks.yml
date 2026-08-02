@@ -42,13 +42,7 @@ jobs:
         run: npm run build
 
       - name: Run browser regression
-        run: npx playwright test editor-smoke.spec.ts
-
-      - name: Run accessibility regression
-        run: npm run test:accessibility
-
-      - name: Run performance regression
-        run: npm run test:performance
+        run: npm run test:e2e
 
       - name: Retain browser diagnostics
         if: failure()

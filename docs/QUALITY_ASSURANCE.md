@@ -57,6 +57,10 @@ memory use, or OCR should.
 - Each release includes SHA-256 checksums and an SPDX JSON SBOM.
 - GitHub generates provenance and SBOM attestations for each stable installer.
 
+The browser suite also reopens exported PDFs to verify form flattening,
+metadata cleanup, searchable text annotations, secure redaction, page geometry,
+mixed page rotations, malformed-file recovery, and 500-page virtualization.
+
 ## Local regression commands
 
 ```powershell
