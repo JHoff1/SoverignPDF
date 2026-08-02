@@ -52,10 +52,19 @@ jobs:
         include:
           - name: Windows
             platform: windows-latest
-          - name: macOS
-            platform: macos-latest
-          - name: Linux
+            os-family: windows
+          - name: macOS Apple Silicon
+            platform: macos-15
+            os-family: macos
+          - name: macOS Intel
+            platform: macos-15-intel
+            os-family: macos
+          - name: Linux Ubuntu 22.04
             platform: ubuntu-22.04
+            os-family: linux
+          - name: Linux Ubuntu 24.04
+            platform: ubuntu-24.04
+            os-family: linux
 
     runs-on: ${{ matrix.platform }}
 
@@ -64,7 +73,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.os-family == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -89,8 +98,21 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
 
   linux-packages:
-    name: Linux package smoke tests
-    runs-on: ubuntu-22.04
+    name: Linux package smoke tests (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 22.04
+            platform: ubuntu-22.04
+            fuse-package: libfuse2
+            artifact-suffix: ubuntu-22-04
+          - name: Ubuntu 24.04
+            platform: ubuntu-24.04
+            fuse-package: libfuse2t64
+            artifact-suffix: ubuntu-24-04
+
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Check out source
@@ -104,7 +126,7 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
-            libfuse2 \
+            ${{ matrix.fuse-package }} \
             squashfs-tools \
             xvfb \
             xdotool \
@@ -187,14 +209,27 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: veritypdf-linux-smoke-diagnostics
+          name: veritypdf-linux-${{ matrix.artifact-suffix }}-smoke-diagnostics
           path: smoke-artifacts
           if-no-files-found: warn
           retention-days: 14
 
   macos-package:
-    name: macOS universal DMG smoke test
-    runs-on: macos-latest
+    name: macOS universal DMG smoke test (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Apple Silicon
+            platform: macos-15
+            expected-architecture: arm64
+            artifact-suffix: apple-silicon
+          - name: Intel
+            platform: macos-15-intel
+            expected-architecture: x86_64
+            artifact-suffix: intel
+
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Check out source
@@ -219,6 +254,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Verify native runner architecture
+        shell: bash
+        run: |
+          actual_architecture="$(uname -m)"
+          test "$actual_architecture" = "${{ matrix.expected-architecture }}"
+          echo "Testing the native $actual_architecture macOS application slice."
+
       - name: Build universal DMG
         run: npm run tauri -- build --bundles dmg --target universal-apple-darwin
 
@@ -239,7 +281,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: veritypdf-macos-smoke-diagnostics
+          name: veritypdf-macos-${{ matrix.artifact-suffix }}-smoke-diagnostics
           path: smoke-artifacts
           if-no-files-found: warn
           retention-days: 14
