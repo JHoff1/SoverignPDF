@@ -9,6 +9,11 @@ window-close event.
 - [ ] `npm run test:unit`
 - [ ] `npm run build`
 - [ ] `npm run test:e2e`
+- [ ] `npm run test:accessibility`
+- [ ] `npm run test:performance`
+- [ ] `npm audit --audit-level=high`
+- [ ] `cargo audit --file src-tauri/Cargo.lock`
+- [ ] `cargo deny --manifest-path src-tauri/Cargo.toml check licenses bans sources`
 - [ ] `cargo clippy --manifest-path src-tauri/Cargo.toml --locked -- -D warnings`
 - [ ] `cargo test --manifest-path src-tauri/Cargo.toml --locked`
 
@@ -49,7 +54,15 @@ annotations.
 - [ ] Interrupting a test save before replacement leaves the original readable.
 - [ ] Automatic backup mode preserves the previous file contents.
 - [ ] `Ctrl`/`Command`+`P` opens the in-app print options.
-- [ ] Custom page ranges and portrait/landscape reach the system print dialog.
+- [ ] Custom page ranges reach the system print dialog.
+
+## Native package smoke tests
+
+- [ ] The ARM64 MSIX installs and launches on a native Windows ARM64 runner.
+- [ ] The ARM64 executable reports PE machine type `AA64` and opens a PDF.
+- [ ] Clean MSI and NSIS installs register VerityPDF as a PDF handler.
+- [ ] MSI and NSIS upgrades from the previous release retain a working app.
+- [ ] MSI and NSIS uninstall without leaving the application executable behind.
 
 ## Published release
 
@@ -57,4 +70,6 @@ annotations.
 - [ ] macOS `.dmg` is attached.
 - [ ] Linux `.deb` and `.AppImage` are attached.
 - [ ] `SHA256SUMS.txt` is attached and matches all five installers.
+- [ ] `VerityPDF-sbom.spdx.json` is attached.
+- [ ] GitHub provenance and SBOM attestations verify for the stable installers.
 - [ ] The release is public, not a draft, and marked latest.

@@ -16,7 +16,7 @@
   text-rendering: optimizeLegibility;
 }
 
-html[data-theme="light"] {
+.app-shell[data-theme="light"] {
   --color-ink: #f4f5f7;
   --color-panel: #ffffff;
   --color-toolbar: #f7f8fa;
@@ -191,79 +191,79 @@ input[type="number"]::-webkit-outer-spin-button {
   user-select: none !important;
 }
 
-html[data-theme="light"] [class~="text-zinc-100"],
-html[data-theme="light"] [class~="text-white"] {
+.app-shell[data-theme="light"] [class~="text-zinc-100"],
+.app-shell[data-theme="light"] [class~="text-white"] {
   color: #20242b;
 }
 
-html[data-theme="light"] [class~="text-zinc-200"],
-html[data-theme="light"] [class~="text-zinc-300"] {
+.app-shell[data-theme="light"] [class~="text-zinc-200"],
+.app-shell[data-theme="light"] [class~="text-zinc-300"] {
   color: #3f4651;
 }
 
-html[data-theme="light"] [class~="text-zinc-400"] {
+.app-shell[data-theme="light"] [class~="text-zinc-400"] {
   color: #626b78;
 }
 
-html[data-theme="light"] [class~="text-zinc-500"] {
-  color: #737d8c;
+.app-shell[data-theme="light"] [class~="text-zinc-500"] {
+  color: #68717e;
 }
 
-html[data-theme="light"] [class~="text-zinc-600"] {
-  color: #8a93a0;
+.app-shell[data-theme="light"] [class~="text-zinc-600"] {
+  color: #596270;
 }
 
-html[data-theme="light"] [class~="text-orange-100"],
-html[data-theme="light"] [class~="text-orange-200"],
-html[data-theme="light"] [class~="text-orange-300"] {
+.app-shell[data-theme="light"] [class~="text-orange-100"],
+.app-shell[data-theme="light"] [class~="text-orange-200"],
+.app-shell[data-theme="light"] [class~="text-orange-300"] {
   color: #9a3412;
 }
 
-html[data-theme="light"] [class~="text-sky-200"],
-html[data-theme="light"] [class~="text-sky-300"],
-html[data-theme="light"] [class~="text-sky-400/80"] {
+.app-shell[data-theme="light"] [class~="text-sky-200"],
+.app-shell[data-theme="light"] [class~="text-sky-300"],
+.app-shell[data-theme="light"] [class~="text-sky-400/80"] {
   color: #0369a1;
 }
 
-html[data-theme="light"] [class~="text-emerald-200"],
-html[data-theme="light"] [class~="text-emerald-300"],
-html[data-theme="light"] [class~="text-emerald-400"] {
+.app-shell[data-theme="light"] [class~="text-emerald-200"],
+.app-shell[data-theme="light"] [class~="text-emerald-300"],
+.app-shell[data-theme="light"] [class~="text-emerald-400"] {
   color: #047857;
 }
 
-html[data-theme="light"] [class~="text-red-100"],
-html[data-theme="light"] [class~="text-red-200"],
-html[data-theme="light"] [class~="text-red-300"] {
+.app-shell[data-theme="light"] [class~="text-red-100"],
+.app-shell[data-theme="light"] [class~="text-red-200"],
+.app-shell[data-theme="light"] [class~="text-red-300"] {
   color: #b91c1c;
 }
 
-html[data-theme="light"] [class~="border-white/5"],
-html[data-theme="light"] [class~="border-white/10"],
-html[data-theme="light"] [class~="border-white/15"] {
+.app-shell[data-theme="light"] [class~="border-white/5"],
+.app-shell[data-theme="light"] [class~="border-white/10"],
+.app-shell[data-theme="light"] [class~="border-white/15"] {
   border-color: rgba(31, 41, 55, 0.12);
 }
 
-html[data-theme="light"] [class~="bg-white/5"] {
+.app-shell[data-theme="light"] [class~="bg-white/5"] {
   background-color: rgba(31, 41, 55, 0.04);
 }
 
-html[data-theme="light"] [class~="bg-white/10"] {
+.app-shell[data-theme="light"] [class~="bg-white/10"] {
   background-color: rgba(31, 41, 55, 0.08);
 }
 
-html[data-theme="light"] [class~="bg-black/15"],
-html[data-theme="light"] [class~="bg-black/20"],
-html[data-theme="light"] [class~="bg-black/25"] {
+.app-shell[data-theme="light"] [class~="bg-black/15"],
+.app-shell[data-theme="light"] [class~="bg-black/20"],
+.app-shell[data-theme="light"] [class~="bg-black/25"] {
   background-color: rgba(31, 41, 55, 0.045);
 }
 
-html[data-theme="light"] [class~="bg-[#15171b]"],
-html[data-theme="light"] [class~="bg-[#202329]"],
-html[data-theme="light"] [class~="bg-[#24272d]"] {
+.app-shell[data-theme="light"] [class~="bg-[#15171b]"],
+.app-shell[data-theme="light"] [class~="bg-[#202329]"],
+.app-shell[data-theme="light"] [class~="bg-[#24272d]"] {
   background-color: #ffffff;
 }
 
-html[data-theme="light"] .toolbar-tooltip[data-tooltip]::after {
+.app-shell[data-theme="light"] .toolbar-tooltip[data-tooltip]::after {
   border-color: #d4d7dc;
   background: #ffffff;
   color: #20242b;

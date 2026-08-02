@@ -49,10 +49,16 @@ function Import-VisualStudioEnvironment {
         throw "Visual Studio's developer command script was not found."
     }
 
+    $hostArchitecture = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+        "arm64"
+    } else {
+        "x64"
+    }
     $command = (
-        '"{0}" -no_logo -arch={1} -host_arch=x64 >nul && set' -f
+        '"{0}" -no_logo -arch={1} -host_arch={2} >nul && set' -f
         $developerCommand,
-        $TargetArchitecture
+        $TargetArchitecture,
+        $hostArchitecture
     )
     $environmentLines = & $env:ComSpec /d /s /c $command
     if ($LASTEXITCODE -ne 0) {

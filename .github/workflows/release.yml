@@ -269,14 +269,23 @@ jobs:
     name: Publish verified release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: write
+      id-token: write
     steps:
+      - name: Check out source for SBOM generation
+        uses: actions/checkout@v6
+
       - name: Download installer assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets
 
-      - name: Generate SHA-256 checksums
+      - name: Prepare stable release filenames
         run: |
           cd release-assets
           cp "$(find . -maxdepth 1 -type f -name '*.AppImage' -print -quit)" VerityPDF.AppImage
@@ -284,13 +293,49 @@ jobs:
           cp "$(find . -maxdepth 1 -type f -name '*.dmg' -print -quit)" VerityPDF.dmg
           cp "$(find . -maxdepth 1 -type f -name '*-setup.exe' -print -quit)" VerityPDF.exe
           cp "$(find . -maxdepth 1 -type f -name '*.msi' -print -quit)" VerityPDF.msi
+
+      - name: Generate release SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          artifact-name: VerityPDF-sbom.spdx.json
+          output-file: release-assets/VerityPDF-sbom.spdx.json
+          upload-artifact: true
+          upload-release-assets: false
+
+      - name: Generate SHA-256 checksums
+        run: |
+          cd release-assets
           sha256sum \
             VerityPDF.AppImage \
             VerityPDF.deb \
             VerityPDF.dmg \
             VerityPDF.exe \
             VerityPDF.msi \
+            VerityPDF-sbom.spdx.json \
             > SHA256SUMS.txt
+
+      - name: Attest release provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            release-assets/VerityPDF.AppImage
+            release-assets/VerityPDF.deb
+            release-assets/VerityPDF.dmg
+            release-assets/VerityPDF.exe
+            release-assets/VerityPDF.msi
+
+      - name: Attest release SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            release-assets/VerityPDF.AppImage
+            release-assets/VerityPDF.deb
+            release-assets/VerityPDF.dmg
+            release-assets/VerityPDF.exe
+            release-assets/VerityPDF.msi
+          sbom-path: release-assets/VerityPDF-sbom.spdx.json
 
       - name: Attach stable download files and checksum manifest
         env:
@@ -303,6 +348,7 @@ jobs:
             release-assets/VerityPDF.dmg \
             release-assets/VerityPDF.exe \
             release-assets/VerityPDF.msi \
+            release-assets/VerityPDF-sbom.spdx.json \
             release-assets/SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" --clobber
 
@@ -317,7 +363,7 @@ jobs:
             --jq '.assets[].name' |
           while IFS= read -r asset; do
             case "$asset" in
-              VerityPDF.AppImage|VerityPDF.deb|VerityPDF.dmg|VerityPDF.exe|VerityPDF.msi|SHA256SUMS.txt)
+              VerityPDF.AppImage|VerityPDF.deb|VerityPDF.dmg|VerityPDF.exe|VerityPDF.msi|VerityPDF-sbom.spdx.json|SHA256SUMS.txt)
                 ;;
               *)
                 gh release delete-asset "$RELEASE_TAG" "$asset" \
@@ -353,6 +399,7 @@ jobs:
               "VerityPDF.dmg",
               "VerityPDF.exe",
               "VerityPDF.msi",
+              "VerityPDF-sbom.spdx.json",
               "SHA256SUMS.txt",
             ];
             const missingAssets = expectedAssets.filter(
