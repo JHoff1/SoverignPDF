@@ -94,6 +94,17 @@ function Remove-NsisInstall {
     }
 }
 
+function Assert-AppRemoved {
+    param([string]$Label)
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        if (-not (Find-InstalledExecutable)) { return }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTime]::UtcNow -lt $deadline)
+    $remaining = Find-InstalledExecutable
+    throw "$Label left the application executable at $remaining."
+}
+
 try {
     if ($PreviousMsi -and (Test-Path -LiteralPath $PreviousMsi)) {
         Invoke-Msi -Label "previous-install" -Arguments @("/i", (Resolve-Path $PreviousMsi).Path, "/qn", "/norestart")
@@ -102,7 +113,7 @@ try {
     Invoke-Msi -Label "current-install" -Arguments @("/i", $msiPath, "/qn", "/norestart")
     Test-InstalledApp "msi-current"
     Invoke-Msi -Label "current-uninstall" -Arguments @("/x", $msiPath, "/qn", "/norestart")
-    if (Find-InstalledExecutable) { throw "The MSI uninstall left the app installed." }
+    Assert-AppRemoved "The MSI uninstall"
 
     if ($PreviousNsis -and (Test-Path -LiteralPath $PreviousNsis)) {
         $previous = Start-Process -FilePath (Resolve-Path $PreviousNsis).Path `
@@ -114,7 +125,7 @@ try {
     if ($current.ExitCode -ne 0) { throw "Current NSIS install failed." }
     Test-InstalledApp "nsis-current"
     Remove-NsisInstall
-    if (Find-InstalledExecutable) { throw "The NSIS uninstall left the app installed." }
+    Assert-AppRemoved "The NSIS uninstall"
 }
 finally {
     try { Invoke-Msi -Label "cleanup-uninstall" -Arguments @("/x", $msiPath, "/qn", "/norestart") } catch {}
