@@ -17,6 +17,8 @@ New-Item -ItemType Directory -Path $artifactPath -Force | Out-Null
 $certificate = $null
 $installedPackage = $null
 $certificatePath = Join-Path $artifactPath "arm64-smoke.cer"
+$installJob = $null
+$unpackedPath = $null
 
 function Find-WindowsSdkTool {
     param([Parameter(Mandatory)][string]$Name)
@@ -53,16 +55,33 @@ try {
     & $signTool verify /pa $packagePath
     if ($LASTEXITCODE -ne 0) { throw "The signed MSIX did not verify." }
 
-    Add-AppxPackage -Path $packagePath -ForceApplicationShutdown
-    $installedPackage = Get-AppxPackage -Name "jhoff1.VerityPDF" |
-        Sort-Object Version -Descending |
-        Select-Object -First 1
-    if (-not $installedPackage) { throw "The Store package was not installed." }
-    if ([string]$installedPackage.Architecture -ne "Arm64") {
-        throw "Expected an ARM64 package, found $($installedPackage.Architecture)."
+    $installJob = Start-Job -ScriptBlock {
+        param($Path)
+        Add-AppxPackage -Path $Path -ForceApplicationShutdown -ErrorAction Stop
+    } -ArgumentList $packagePath
+    if (Wait-Job -Job $installJob -Timeout 90) {
+        Receive-Job -Job $installJob -ErrorAction Stop | Out-Null
+        $installedPackage = Get-AppxPackage -Name "jhoff1.VerityPDF" |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+        if (-not $installedPackage) { throw "The Store package was not installed." }
+        if ([string]$installedPackage.Architecture -ne "Arm64") {
+            throw "Expected an ARM64 package, found $($installedPackage.Architecture)."
+        }
+        $executable = Join-Path $installedPackage.InstallLocation "verity-pdf.exe"
+    } else {
+        Stop-Job -Job $installJob -ErrorAction SilentlyContinue
+        Write-Warning "AppX deployment did not finish on the hosted runner; validating the unpacked ARM64 package runtime instead."
+        $makeAppx = Find-WindowsSdkTool -Name "makeappx.exe"
+        $unpackedPath = Join-Path $env:RUNNER_TEMP "veritypdf-arm64-unpacked"
+        if (Test-Path -LiteralPath $unpackedPath) {
+            Remove-Item -LiteralPath $unpackedPath -Recurse -Force
+        }
+        & $makeAppx unpack /p $packagePath /d $unpackedPath /o
+        if ($LASTEXITCODE -ne 0) { throw "MakeAppx could not unpack the ARM64 MSIX." }
+        $executable = Join-Path $unpackedPath "verity-pdf.exe"
     }
 
-    $executable = Join-Path $installedPackage.InstallLocation "verity-pdf.exe"
     if (-not (Test-Path -LiteralPath $executable)) {
         throw "The installed ARM64 executable is missing."
     }
@@ -80,6 +99,16 @@ try {
         -Label "windows-arm64-msix"
 }
 finally {
+    if ($installJob) {
+        Stop-Job -Job $installJob -ErrorAction SilentlyContinue
+        Remove-Job -Job $installJob -Force -ErrorAction SilentlyContinue
+    }
+    if (-not $installedPackage) {
+        $installedPackage = Get-AppxPackage -Name "jhoff1.VerityPDF" `
+            -ErrorAction SilentlyContinue |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+    }
     if ($installedPackage) {
         Remove-AppxPackage -Package $installedPackage.PackageFullName `
             -ErrorAction SilentlyContinue

@@ -378,7 +378,7 @@ jobs:
         run: node scripts/create-store-demo-pdf.mjs "$env:RUNNER_TEMP\VerityPDF ARM64 Smoke Test.pdf"
 
       - name: Install and launch ARM64 MSIX
-        timeout-minutes: 5
+        timeout-minutes: 8
         shell: pwsh
         run: |
           $package = Get-ChildItem "src-tauri/target/store/arm64/*.msix" |

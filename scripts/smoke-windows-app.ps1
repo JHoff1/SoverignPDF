@@ -25,6 +25,16 @@ Remove-Item -LiteralPath $readyPath, $stdoutPath, $stderrPath -Force `
 $previousMarker = $env:VERITYPDF_SMOKE_READY_FILE
 $env:VERITYPDF_SMOKE_READY_FILE = $readyPath
 $process = $null
+
+function Normalize-SmokePath {
+    param([Parameter(Mandatory)][string]$Path)
+    $normalized = [System.IO.Path]::GetFullPath($Path)
+    if ($normalized.StartsWith('\\?\')) {
+        $normalized = $normalized.Substring(4)
+    }
+    return $normalized.TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+}
+
 try {
     $process = Start-Process -FilePath $executablePath `
         -ArgumentList ('"{0}"' -f $pdfPath) `
@@ -40,8 +50,8 @@ try {
         }
         if (Test-Path -LiteralPath $readyPath) {
             $openedPath = (Get-Content -LiteralPath $readyPath -Raw).Trim()
-            if ($openedPath.Equals(
-                $pdfPath,
+            if ((Normalize-SmokePath $openedPath).Equals(
+                (Normalize-SmokePath $pdfPath),
                 [System.StringComparison]::OrdinalIgnoreCase
             )) {
                 Write-Host "$Label opened $(Split-Path $pdfPath -Leaf)."
