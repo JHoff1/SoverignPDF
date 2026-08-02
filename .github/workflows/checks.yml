@@ -44,6 +44,54 @@ jobs:
       - name: Run browser regression
         run: npm run test:e2e
 
+      - name: Retain browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veritypdf-browser-test-results
+          path: test-results
+          if-no-files-found: ignore
+          retention-days: 14
+
+  supply-chain:
+    name: Dependency and license policy
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+      - name: Audit Rust vulnerabilities
+        run: cargo audit --file src-tauri/Cargo.lock
+
+      - name: Enforce Rust dependency policy
+        run: cargo deny --manifest-path src-tauri/Cargo.toml check licenses bans sources
+
   native:
     name: Native check (${{ matrix.name }})
     strategy:
@@ -282,6 +330,157 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: veritypdf-macos-${{ matrix.artifact-suffix }}-smoke-diagnostics
+          path: smoke-artifacts
+          if-no-files-found: warn
+          retention-days: 14
+
+  windows-arm64-msix:
+    name: Native Windows ARM64 Store package runtime
+    runs-on: windows-11-arm
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Verify native ARM64 runner
+        shell: pwsh
+        run: |
+          if ($env:PROCESSOR_ARCHITECTURE -ne "ARM64") {
+            throw "Expected a native ARM64 runner, found $env:PROCESSOR_ARCHITECTURE."
+          }
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: native-windows-arm64-store
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build ARM64 Store package natively
+        shell: pwsh
+        run: ./scripts/build-msix.ps1 -Architecture arm64
+
+      - name: Create smoke-test PDF
+        run: node scripts/create-store-demo-pdf.mjs "$env:RUNNER_TEMP\VerityPDF ARM64 Smoke Test.pdf"
+
+      - name: Validate and launch ARM64 MSIX payload
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $package = Get-ChildItem "src-tauri/target/store/arm64/*.msix" |
+            Select-Object -First 1
+          if (-not $package) { throw "The ARM64 Store package is missing." }
+          ./scripts/smoke-windows-msix.ps1 `
+            -Package $package.FullName `
+            -Pdf "$env:RUNNER_TEMP\VerityPDF ARM64 Smoke Test.pdf" `
+            -ArtifactDirectory "smoke-artifacts"
+
+      - name: Retain ARM64 diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veritypdf-windows-arm64-smoke-diagnostics
+          path: smoke-artifacts
+          if-no-files-found: warn
+          retention-days: 14
+
+  windows-installers:
+    name: Clean Windows installer and upgrade regression
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: windows-installers
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build MSI and NSIS installers
+        run: npm run tauri -- build --bundles msi,nsis
+
+      - name: Download previous release installers
+        id: previous
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $currentTag = "v$((Get-Content package.json -Raw | ConvertFrom-Json).version)"
+          $release = gh release list --repo $env:GITHUB_REPOSITORY `
+            --limit 25 --json tagName,isDraft,isPrerelease,publishedAt |
+            ConvertFrom-Json |
+            Where-Object { -not $_.isDraft -and -not $_.isPrerelease -and $_.tagName -ne $currentTag } |
+            Sort-Object publishedAt -Descending |
+            Select-Object -First 1
+          if (-not $release) {
+            "available=false" | Out-File $env:GITHUB_OUTPUT -Append
+            exit 0
+          }
+          New-Item -ItemType Directory previous-installers | Out-Null
+          gh release download $release.tagName --repo $env:GITHUB_REPOSITORY `
+            --dir previous-installers --pattern "VerityPDF.msi" --pattern "VerityPDF.exe"
+          "available=true" | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Create smoke-test PDF
+        run: node scripts/create-store-demo-pdf.mjs "$env:RUNNER_TEMP\VerityPDF Installer Smoke Test.pdf"
+
+      - name: Install, upgrade, open PDF, and uninstall
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" |
+            Select-Object -First 1
+          $nsis = Get-ChildItem "src-tauri/target/release/bundle/nsis/*-setup.exe" |
+            Select-Object -First 1
+          if (-not $msi -or -not $nsis) { throw "Candidate installers are missing." }
+          $arguments = @{
+            Msi = $msi.FullName
+            Nsis = $nsis.FullName
+            Pdf = "$env:RUNNER_TEMP\VerityPDF Installer Smoke Test.pdf"
+            ArtifactDirectory = "smoke-artifacts"
+          }
+          if (Test-Path "previous-installers/VerityPDF.msi") {
+            $arguments.PreviousMsi = (Resolve-Path "previous-installers/VerityPDF.msi").Path
+          }
+          if (Test-Path "previous-installers/VerityPDF.exe") {
+            $arguments.PreviousNsis = (Resolve-Path "previous-installers/VerityPDF.exe").Path
+          }
+          ./scripts/smoke-windows-installers.ps1 @arguments
+
+      - name: Retain Windows installer diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: veritypdf-windows-installer-smoke-diagnostics
           path: smoke-artifacts
           if-no-files-found: warn
           retention-days: 14

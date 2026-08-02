@@ -206,11 +206,19 @@ The workflow creates a draft GitHub Release containing:
 - Linux DEB and AppImage packages
 - Microsoft Store x64 and ARM64 MSIX workflow artifacts
 - A `SHA256SUMS.txt` manifest covering every installer
+- An SPDX JSON software bill of materials (SBOM)
+- GitHub provenance and SBOM attestations for the stable installer assets
 
 The workflow verifies all expected assets and publishes the release only after
 every platform build and checksum step succeeds. Verify a downloaded installer
 with `sha256sum -c SHA256SUMS.txt` on Linux, `shasum -a 256` on macOS, or
 `Get-FileHash -Algorithm SHA256` on Windows.
+
+The pre-release checks also audit npm and Rust vulnerabilities, enforce the
+Rust dependency/license policy, exercise the installers, and run accessibility
+and performance budgets. See
+[`docs/QUALITY_ASSURANCE.md`](docs/QUALITY_ASSURANCE.md) for the coverage and
+local commands.
 
 Microsoft Store identity, packaging, listing copy, artwork, screenshots, and
 submission checks are documented in

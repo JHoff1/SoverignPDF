@@ -121,6 +121,7 @@ import {
   type UpdateCheckStatus
 } from "./lib/updateCheck";
 import { version as APP_VERSION } from "../package.json";
+import { createDiagnosticReport } from "./diagnostics";
 
 // Keep the pre-rebrand keys to preserve window and session state on upgrade.
 const WINDOW_BOUNDS_KEY = "sovereignpdf.window-bounds.v1";
@@ -325,6 +326,43 @@ export default function App() {
       GITHUB_ISSUES_URL,
       "The GitHub issue page could not be opened."
     );
+
+  const exportDiagnostics = async () => {
+    const report = createDiagnosticReport({
+      version: APP_VERSION,
+      platform: window.navigator.platform,
+      desktop: isTauri(),
+      pageCount: pdfDocument?.numPages ?? 0,
+      annotationCount: editor.annotations.length,
+      dirty: editor.isDirty,
+      theme: preferences.theme,
+      viewMode,
+      flattenAnnotations: preferences.flattenAnnotations,
+      automaticBackups: preferences.automaticBackups,
+      restoreSession: preferences.restoreSession,
+      lastError: error
+    });
+    try {
+      if (isTauri()) {
+        const destination = await save({
+          defaultPath: "VerityPDF-diagnostics.txt",
+          filters: [{ name: "Text report", extensions: ["txt"] }]
+        });
+        if (!destination) return;
+        await writeFile(destination, new TextEncoder().encode(report));
+      } else {
+        const url = URL.createObjectURL(new Blob([report], { type: "text/plain" }));
+        const anchor = window.document.createElement("a");
+        anchor.href = url;
+        anchor.download = "VerityPDF-diagnostics.txt";
+        anchor.click();
+        URL.revokeObjectURL(url);
+      }
+      setPreferenceStatus("Privacy-scrubbed diagnostic report saved locally.");
+    } catch (cause) {
+      setError(errorMessage(cause, "The diagnostic report could not be saved."));
+    }
+  };
 
   const checkForUpdates = async () => {
     if (updateStatus === "checking") return;
@@ -2341,6 +2379,7 @@ export default function App() {
           onRestoreRecovery={restoreRecoveryRevision}
           onDeleteRecovery={removeRecoveryRevision}
           onReportIssue={reportIssue}
+          onExportDiagnostics={exportDiagnostics}
           onOpenPrivacyPolicy={() => openExternalProjectPage(
             PRIVACY_POLICY_URL,
             "The privacy policy could not be opened."

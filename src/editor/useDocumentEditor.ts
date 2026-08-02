@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { PDFDocument, PDFPage } from "pdf-lib";
 import { clonePlain, createLocalId } from "../localUtils";
 
@@ -191,64 +191,92 @@ export function useDocumentEditor() {
   const [history, setHistory] = useState<Snapshot[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [savedHistoryIndex, setSavedHistoryIndex] = useState(-1);
+  const historyRef = useRef<Snapshot[]>([]);
+  const historyIndexRef = useRef(-1);
+  const currentRef = useRef<Snapshot | null>(null);
+  const transformQueue = useRef<Promise<void>>(Promise.resolve());
 
   const current = history[historyIndex] ?? null;
+  historyRef.current = history;
+  historyIndexRef.current = historyIndex;
+  currentRef.current = current;
 
   const load = useCallback((bytes: Uint8Array) => {
-    setHistory([{ bytes: cloneBytes(bytes), annotations: [], label: "Open document" }]);
+    const next = [{ bytes: cloneBytes(bytes), annotations: [], label: "Open document" }];
+    historyRef.current = next;
+    historyIndexRef.current = 0;
+    currentRef.current = next[0];
+    setHistory(next);
     setHistoryIndex(0);
     setSavedHistoryIndex(0);
   }, []);
 
   const restore = useCallback((bytes: Uint8Array, annotations: Annotation[]) => {
-    setHistory([{
+    const next = [{
       bytes: cloneBytes(bytes),
       annotations: clonePlain(annotations),
       label: "Recover unsaved work"
-    }]);
+    }];
+    historyRef.current = next;
+    historyIndexRef.current = 0;
+    currentRef.current = next[0];
+    setHistory(next);
     setHistoryIndex(0);
     setSavedHistoryIndex(-1);
   }, []);
 
   const clear = useCallback(() => {
+    historyRef.current = [];
+    historyIndexRef.current = -1;
+    currentRef.current = null;
     setHistory([]);
     setHistoryIndex(-1);
     setSavedHistoryIndex(-1);
   }, []);
 
   const commit = useCallback((snapshot: Snapshot) => {
-    setHistory((previous) => {
-      const next = previous.slice(0, historyIndex + 1);
-      next.push({
-        ...snapshot,
-        // PDF bytes are treated as immutable. Keeping the same reference for
-        // annotation-only commits prevents PDF.js from rebuilding every page.
-        bytes: snapshot.bytes,
-        annotations: clonePlain(snapshot.annotations)
-      });
-      return next.slice(-40);
-    });
-    setHistoryIndex((previous) => Math.min(previous + 1, 39));
-  }, [historyIndex]);
+    const stored = {
+      ...snapshot,
+      // PDF bytes are treated as immutable. Keeping the same reference for
+      // annotation-only commits prevents PDF.js from rebuilding every page.
+      bytes: snapshot.bytes,
+      annotations: clonePlain(snapshot.annotations)
+    };
+    const next = [
+      ...historyRef.current.slice(0, historyIndexRef.current + 1),
+      stored
+    ].slice(-40);
+    const nextIndex = next.length - 1;
+    historyRef.current = next;
+    historyIndexRef.current = nextIndex;
+    currentRef.current = stored;
+    setHistory(next);
+    setHistoryIndex(nextIndex);
+  }, []);
 
-  const transformPdf = useCallback(async (
+  const transformPdf = useCallback((
     label: string,
     operation: (pdf: PDFDocument) => Promise<void> | void,
     transformAnnotations?: (items: Annotation[]) => Annotation[]
   ) => {
-    if (!current) return;
-    const { PDFDocument } = await loadPdfLib();
-    const pdf = await PDFDocument.load(current.bytes);
-    await operation(pdf);
-    const bytes = await pdf.save({ useObjectStreams: true });
-    commit({
-      bytes,
-      annotations: transformAnnotations
-        ? transformAnnotations(current.annotations)
-        : current.annotations,
-      label
+    const task = transformQueue.current.then(async () => {
+      const source = currentRef.current;
+      if (!source) return;
+      const { PDFDocument } = await loadPdfLib();
+      const pdf = await PDFDocument.load(source.bytes);
+      await operation(pdf);
+      const bytes = await pdf.save({ useObjectStreams: true });
+      commit({
+        bytes,
+        annotations: transformAnnotations
+          ? transformAnnotations(source.annotations)
+          : source.annotations,
+        label
+      });
     });
-  }, [commit, current]);
+    transformQueue.current = task.catch(() => undefined);
+    return task;
+  }, [commit]);
 
   const rotate = useCallback((pageNumber: number, amount: number) =>
     transformPdf("Rotate page", async (pdf) => {
@@ -464,8 +492,8 @@ export function useDocumentEditor() {
       pdf.setAuthor("");
       pdf.setSubject("");
       pdf.setKeywords([]);
-      pdf.setProducer("VerityPDF");
-      pdf.setCreator("VerityPDF");
+      pdf.setProducer("");
+      pdf.setCreator("");
     }), [transformPdf]);
 
   const optimize = useCallback(() =>

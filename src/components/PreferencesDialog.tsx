@@ -1,5 +1,6 @@
 import {
   Bug,
+  Download,
   ExternalLink,
   FileCheck2,
   Github,
@@ -33,6 +34,7 @@ export function PreferencesDialog({
   onRestoreRecovery,
   onDeleteRecovery,
   onReportIssue,
+  onExportDiagnostics,
   onOpenPrivacyPolicy,
   onOpenRepository,
   onOpenWebsite,
@@ -51,6 +53,7 @@ export function PreferencesDialog({
   onRestoreRecovery: (snapshot: RecoverySnapshot) => void;
   onDeleteRecovery: (snapshot: RecoverySnapshot) => void | Promise<void>;
   onReportIssue: () => void | Promise<void>;
+  onExportDiagnostics: () => void | Promise<void>;
   onOpenPrivacyPolicy: () => void | Promise<void>;
   onOpenRepository: () => void | Promise<void>;
   onOpenWebsite: () => void | Promise<void>;
@@ -221,14 +224,24 @@ export function PreferencesDialog({
             <p className="mt-1 text-xs leading-5 text-zinc-400">
               Report a bug or request a feature on GitHub. This opens your system browser only when you choose it; no document information or diagnostics are sent automatically.
             </p>
-            <button
-              type="button"
-              className="mt-3 inline-flex h-9 items-center gap-2 rounded-md bg-orange-500/15 px-3 text-xs font-semibold text-orange-100 hover:bg-orange-500/25"
-              onClick={() => void onReportIssue()}
-            >
-              <ExternalLink size={14} />
-              Report an issue on GitHub
-            </button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="inline-flex h-9 items-center gap-2 rounded-md bg-orange-500/15 px-3 text-xs font-semibold text-orange-100 hover:bg-orange-500/25"
+                onClick={() => void onReportIssue()}
+              >
+                <ExternalLink size={14} />
+                Report an issue on GitHub
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-white/10 px-3 text-xs font-semibold text-zinc-200 hover:bg-white/10"
+                onClick={() => void onExportDiagnostics()}
+              >
+                <Download size={14} />
+                Export diagnostic report
+              </button>
+            </div>
           </div>
         </div>
       </section>
